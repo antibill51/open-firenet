@@ -99,11 +99,24 @@ class InduoV1StoveSimulator:
         self.sens_refresh_all = False  # flag 0 of GET_SENSORS = "refresh all"
         self.sens_pending = False
 
+        # Control records by 2.27 record: same registration mechanism as the sensors (GET_CONTROLS=<flag>; name=value; ...)
+        self.ctrl_names = []
+        self.ctrl_sent = {}            # previous value per record, the stove re-posts a record when it differs from it
+        self.ctrl_refresh_all = False  # flag 0 of GET_CONTROLS = "refresh all"
+
         # Contrôles
         self.ctrl_on = 1
         self.ctrl_mode = 2
         self.ctrl_stage = 75
         self.ctrl_room = 210
+
+    def ctrl_record_values(self) -> dict:
+        """Current value of each control record by 2.27 record (others read 0): 0 revision, 1..4 onOff/mode/stage/room,
+        6/7 first heating times, 20 heatingTimesActive, 21 setBackTemp, 28..30 frost active / temp, room offset."""
+        return {
+            1: self.ctrl_on, 2: self.ctrl_mode, 3: self.ctrl_stage, 4: self.ctrl_room,
+            6: 360, 7: 1080, 20: 1, 21: 180, 28: 1, 29: 50, 30: -2,
+        }
 
     def record_values(self) -> dict:
         """Value of each sensor record by 2.27 position (positions with a known meaning only, others read 0)."""
@@ -188,6 +201,18 @@ class InduoV1StoveSimulator:
             return replies
         if frame.startswith("TRANSFER_COMPLETED"):
             self.watchdog_ticks = 100
+            # One POST per TRANSFER_COMPLETED, the controls first (fn 0x8004b0f0 before fn 0x8004bc8c)
+            cvals = self.ctrl_record_values()
+            cout = []
+            for k, name in enumerate(self.ctrl_names):
+                v = cvals.get(k, 0)
+                if self.ctrl_refresh_all or self.ctrl_sent.get(k) != v:
+                    cout.append(f"{name}={v}; ")
+                    self.ctrl_sent[k] = v
+            self.ctrl_refresh_all = False
+            if cout:
+                replies.append("POST_CONTROLS=0; " + "".join(cout))
+                return replies
             if not (self.sens_names and self.sens_pending):
                 return replies
             self.sens_pending = False
@@ -203,35 +228,30 @@ class InduoV1StoveSimulator:
                 replies.append("POST_SENSORS=0; " + "".join(out))
             return replies
 
-        # 4. Requête lecture contrôles (GET_CONTROLS=0;)
-        if "GET_CONTROLS=0;" in frame:
+        # 4. Control registration (GET_CONTROLS=<flag>; name=value; ...): record k takes the name k, the list is replaced by
+        # every such frame (0x8004cb18). Flag 0 = refresh all, posted at the next TRANSFER_COMPLETED. Any other flag applies
+        # the values (records 1..4 here) and copies current -> previous, so nothing is posted back.
+        if "GET_CONTROLS=" in frame:
+            import re
             self.watchdog_ticks = 100
-            ctrl_frame = (
-                f"POST_CONTROLS=0; onOff={self.ctrl_on}; mode={self.ctrl_mode}; "
-                f"targetStage={self.ctrl_stage}; roomTarget={self.ctrl_room}; "
-            )
-            replies.append(ctrl_frame)
-            return replies
-
-        # 5. Modification de consigne (GET_CONTROLS=1; ...)
-        if "GET_CONTROLS=1;" in frame:
-            self.watchdog_ticks = 100
-            # Parse les consignes reçues
-            for part in frame.split(";"):
-                part = part.strip()
-                if part.startswith("onOff="):
-                    self.ctrl_on = int(part.split("=")[1])
-                elif part.startswith("mode="):
-                    self.ctrl_mode = int(part.split("=")[1])
-                elif part.startswith("targetStage="):
-                    self.ctrl_stage = int(part.split("=")[1])
-                elif part.startswith("roomTarget="):
-                    self.ctrl_room = int(part.split("=")[1])
-            ctrl_frame = (
-                f"POST_CONTROLS=0; onOff={self.ctrl_on}; mode={self.ctrl_mode}; "
-                f"targetStage={self.ctrl_stage}; roomTarget={self.ctrl_room}; "
-            )
-            replies.append(ctrl_frame)
+            m = re.match(r"GET_CONTROLS=(\d+);\s*(.*)", frame.strip(), re.S)
+            pairs = re.findall(r"([A-Za-z0-9_]+)=(-?\d+);", m.group(2)) if m else []
+            self.ctrl_names = [n for n, _ in pairs]
+            if m and int(m.group(1)) == 0:
+                self.ctrl_refresh_all = True
+                self.ctrl_sent = {}
+            elif m:
+                for name, val in pairs:
+                    if name == "onOff":
+                        self.ctrl_on = int(val)
+                    elif name == "mode":
+                        self.ctrl_mode = int(val)
+                    elif name == "targetStage":
+                        self.ctrl_stage = int(val)
+                    elif name == "roomTarget":
+                        self.ctrl_room = int(val)
+                cur = self.ctrl_record_values()
+                self.ctrl_sent = {k: cur.get(k, 0) for k in range(len(self.ctrl_names))}
             return replies
 
         return replies
@@ -322,6 +342,43 @@ def run_induo_simulation_tests():
     assert_test("sensors_pos indexé comme la table DOMO (mainState en 31)", "sp31=1" in state_str)
     assert_test("pelletHours en position DOMO 47 (position 2.27 46)", "sp47=3850" in state_str)
     assert_test("pelletsTotal en position DOMO 49 (position 2.27 48)", "sp49=4520" in state_str)
+
+    # Etape 4b : contrôles nommés (POLLCTRL), puis une commande qui remplace la liste enregistrée
+    print("\n--- 4b. Contrôles nommés (GET_CONTROLS=0; name=0; ...) ---")
+    tx_ctl, _ = bridge.send_cmd("POLLCTRL")
+    for _ in range(5):
+        tx_ctl += bridge.tick(600)[0]
+    ctl_req = next((t for t in tx_ctl if t.startswith("GET_CONTROLS=0; ")), None)
+    assert_test("Le dongle enregistre les noms de contrôles (GET_CONTROLS=0; revision=0; onOff=0; ...)",
+                bool(ctl_req) and ctl_req.startswith("GET_CONTROLS=0; revision=0; onOff=0; mode=0; targetStage=0; roomTarget=0; reserved6=0; "))
+    assert_test("L'enregistrement saute bakeTarget (pas de record 5 sur le 2.27)", bool(ctl_req) and "bakeTarget" not in ctl_req)
+    ctl_replies = []
+    for t in tx_ctl:
+        ctl_replies += stove.process_dongle_tx(t)
+    ctl_post = next((r for r in ctl_replies if r.startswith("POST_CONTROLS=0; ")), "")
+    assert_test("Le poêle poste tous les contrôles nommés (onOff=1; roomTarget=210; frostProtectionTemp=50;)",
+                "onOff=1; " in ctl_post and "roomTarget=210; " in ctl_post and "frostProtectionTemp=50; " in ctl_post)
+    bridge.rx(ctl_post)
+    bridge.tick(60)
+    state_ctl = bridge.get_state()
+    assert_test("controls_pos indexé comme la table DOMO (onOff en 1, roomTarget en 4, roomTempOffset en 31)",
+                "cp1=1 " in state_ctl and "cp4=210 " in state_ctl and "cp31=-2 " in state_ctl)
+    assert_test("heatTimeMon1 en position DOMO 7 (record 2.27 6)", "cp7=360 " in state_ctl)
+
+    # Une commande envoie GET_CONTROLS=1 avec 5 noms (liste remplacée), la consigne est appliquée et non re-postée
+    tx_set, _ = bridge.send_cmd("SETONE roomTarget=225")
+    for _ in range(6):
+        tx_set += bridge.tick(600)[0]
+    set_replies = []
+    for t in tx_set:
+        set_replies += stove.process_dongle_tx(t)
+    assert_test("La commande est appliquée par le poêle (roomTarget=225)", stove.ctrl_room == 225)
+    assert_test("Le poêle ne re-poste pas la valeur imposée", not any(r.startswith("POST_CONTROLS") for r in set_replies))
+    tx_re, _ = bridge.send_cmd("POLLCTRL")
+    for _ in range(5):
+        tx_re += bridge.tick(600)[0]
+    assert_test("Le dongle ré-enregistre les 37 noms au poll suivant",
+                any(t.startswith("GET_CONTROLS=0; revision=") for t in tx_re))
 
     # Etape 5 : Réinitialisation de session poêle (STX '0' ETX)
     print("\n--- 5. Simulation Watchdog / Déconnexion du poêle (STX '0' ETX) ---")

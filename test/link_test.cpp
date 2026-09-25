@@ -233,6 +233,45 @@ int main(){
     CH("V1 delta frame updates roomTemp", l5.model().sensors_pos[0] == 237);
     CH("V1 delta frame keeps the other records", l5.model().sensors_pos[47] == 4354 && l5.model().sensors_pos[31] == 1);
 
+    // 2b) V1 controls: the names are registered once (GET_CONTROLS=0; name=0; ...), the stove then posts them all and later only the changes
+    w5.clear();
+    l5.pollControls(); drain5();
+    {
+      CH("V1 pollControls registers the control names (GET_CONTROLS=0; ...)",
+         w5.find("GET_CONTROLS=0; revision=0; onOff=0; mode=0; targetStage=0; roomTarget=0; reserved6=0; heatTimeMon1=0; ") != std::string::npos);
+      CH("V1 controls registration skips bakeTarget (no such record on the 2.27)", w5.find("bakeTarget") == std::string::npos);
+      CH("V1 controls registration: frost / offset at V1 records 29..31, then unlabelled DOMO 33..37",
+         w5.find("frostProtectionTemp=0; roomTempOffset=0; roomSensorPower=0; c33=0; c34=0; c35=0; c36=0; c37=0; GET_REVISION=") != std::string::npos);
+      CH("V1 controls registration is followed by GET_REVISION then TRANSFER_COMPLETED",
+         w5.find("c37=0; GET_REVISION=") != std::string::npos && w5.find("TRANSFER_COMPLETED", w5.find("c37=0; ")) != std::string::npos);
+    }
+    w5.clear();
+    l5.pollControls(); drain5();
+    CH("V1 pollControls sends nothing once registered", w5.empty());
+    {
+      std::string post = "POST_CONTROLS=0; revision=0; onOff=1; mode=2; targetStage=70; roomTarget=210; reserved6=0; heatTimeMon1=360; "
+                         "heatTimeMon2=1080; heatingTimesActive=1; setBackTemp=180; frostProtectionActive=1; frostProtectionTemp=50; roomTempOffset=-2; ";
+      for(char c:post) l5.onByte(c);
+      c5+=60; l5.poll();
+      const auto& cp = l5.model().controls_pos;
+      CH("V1 controls_pos[1..4] = onOff, mode, targetStage, roomTarget", cp.size() > 4 && cp[1]==1 && cp[2]==2 && cp[3]==70 && cp[4]==210);
+      CH("V1 controls_pos[7] / [8] = heatTimeMon1 / heatTimeMon2 (DOMO index)", cp.size() > 8 && cp[7]==360 && cp[8]==1080);
+      CH("V1 controls_pos[21] / [22] = heatingTimesActive / setBackTemp", cp.size() > 22 && cp[21]==1 && cp[22]==180);
+      CH("V1 controls_pos[29] / [30] / [31] = frost active / frost temp / room offset", cp.size() > 31 && cp[29]==1 && cp[30]==50 && cp[31]==-2);
+      CH("V1 controls map keyed by name", l5.model().controls.at("onOff")==1 && l5.model().controls.at("roomTempOffset")==-2);
+      std::string dl = "POST_CONTROLS=0; roomTarget=220; ";
+      for(char c:dl) l5.onByte(c);
+      c5+=60; l5.poll();
+      CH("V1 controls delta updates roomTarget and keeps the others", l5.model().controls_pos[4]==220 && l5.model().controls_pos[1]==1 && l5.model().controls_pos[22]==180);
+    }
+    // a command sends GET_CONTROLS=1 with five names, which replaces the registered list: register again at the next poll
+    w5.clear();
+    l5.applyControls({{"onOff",0}}); drain5();
+    CH("V1 applyControls sends the five positional names", w5.find("GET_CONTROLS=1; revision=") != std::string::npos);
+    w5.clear();
+    l5.pollControls(); drain5();
+    CH("V1 controls registered again after a command", w5.find("GET_CONTROLS=0; revision=") != std::string::npos);
+
     // 3) Réinitialisation par STX '0' ETX (\x02 0 \x03)
     w5.clear();
     l5.onByte(0x02); l5.onByte('0'); l5.onByte(0x03);

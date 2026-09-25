@@ -160,8 +160,29 @@ enum Sens {
 static const char* CONTROL_LABELS[] = {
   /*0*/"revision", /*1*/"onOff", /*2*/"mode", /*3*/"targetStage",
   /*4*/"roomTarget",                       // ×10 (§13, CTRL_ROOM_TARGET_SCALE)
+  /*5*/"bakeTarget",
+  /*6*/"reserved6",
+  /*7*/"heatTimeMon1", /*8*/"heatTimeMon2",
+  /*9*/"heatTimeTue1", /*10*/"heatTimeTue2",
+  /*11*/"heatTimeWed1", /*12*/"heatTimeWed2",
+  /*13*/"heatTimeThu1", /*14*/"heatTimeThu2",
+  /*15*/"heatTimeFri1", /*16*/"heatTimeFri2",
+  /*17*/"heatTimeSat1", /*18*/"heatTimeSat2",
+  /*19*/"heatTimeSun1", /*20*/"heatTimeSun2",
+  /*21*/"heatingTimesActive",
+  /*22*/"setBackTemp",
+  /*23*/"convectionFan1Active",
+  /*24*/"convectionFan1Level",
+  /*25*/"convectionFan1Area",
+  /*26*/"convectionFan2Active",
+  /*27*/"convectionFan2Level",
+  /*28*/"convectionFan2Area",
+  /*29*/"frostProtectionActive",
+  /*30*/"frostProtectionTemp",
+  /*31*/"roomTempOffset",
+  /*32*/"roomSensorPower",
 };
-static const int NUM_CONTROL_LABELS = 5;
+static const int NUM_CONTROL_LABELS = 33;
 
 // index = position du capteur ; couvre les positions prouvées jusqu'à 54 (55 au total).
 static const char* SENSOR_LABELS[] = {
@@ -186,9 +207,28 @@ static const char* SENSOR_LABELS[] = {
 static const int NUM_SENSOR_LABELS = 55;
 
 // nom émis pour une position (libellé prouvé, sinon "sNN"/"cNN")
-inline std::string ctrlName(int i) {
+// INDUO V2.26 / V2.27 (generation 2): the controls table of the stove is the DOMO / INDUO II one without the record at
+// index 5 (the 2.28 has an extra constant record there, disassembly of both firmwares): V1 record p is DOMO control p
+// for p < 5 and p + 1 for p >= 5 (V1 records 6..19 = the 14 heating times = DOMO 7..20, and so on up to record 36).
+inline int v1ToDomoCtrlIndex(int p) { return p < 5 ? p : p + 1; }
+
+inline std::string ctrlName(int i, int generation = 0) {
+  if (generation == 2) i = v1ToDomoCtrlIndex(i);   // i is then a V1 (2.27) record
   if (i < NUM_CONTROL_LABELS && CONTROL_LABELS[i][0]) return CONTROL_LABELS[i];
   char b[8]; snprintf(b, sizeof b, "c%02d", i); return b;
+}
+
+// Index (DOMO index space) of a control name echoed by the stove, or -1: a label of the table or "cNN".
+inline int ctrlIndexByName(const std::string& n) {
+  if (n.empty()) return -1;
+  for (int i = 0; i < NUM_CONTROL_LABELS; i++)
+    if (CONTROL_LABELS[i][0] && n == CONTROL_LABELS[i]) return i;
+  if (n.size() >= 2 && n.size() <= 4 && n[0] == 'c') {
+    int v = 0;
+    for (size_t k = 1; k < n.size(); k++) { if (n[k] < '0' || n[k] > '9') return -1; v = v * 10 + (n[k] - '0'); }
+    return v;
+  }
+  return -1;
 }
 // INDUO V2.26 / V2.27 (generation 2): the stove's sensor table is the DOMO / INDUO II one without the record
 // at index 2 (disassembly of the three firmwares, joined through the TFT display numbers: 2.27 position p is

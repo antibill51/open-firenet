@@ -37,6 +37,9 @@ public:
   // V1 positions registered in GET_SENSORS: 0..86 = every record the stove's PRIO2 fill writes (2.27 fn 0x8004b390: records 0..86);
   // the DOMO table has 88 positions (record 2 of the 2.28 is never written). Only the first 55 DOMO positions have a label, the rest are sNN.
   static constexpr int V1_SENSOR_COUNT = 87;
+  // V1 control records registered in GET_CONTROLS: 0..36 = every record of the 2.27 controls table (FINDINGS "2.27
+  // controls table: record index -> destination"; at least 37 records). The DOMO / INDUO II labels are used, record 5 skipped.
+  static constexpr int V1_CONTROL_COUNT = 37;
   using TxFn  = std::function<void(const uint8_t*, size_t)>;
   using NowFn = std::function<uint32_t()>;
 
@@ -121,6 +124,7 @@ public:
 
   void sendVersion() {
     v1_sensors_registered_ = false;         // the stove forgets nothing on its side, but the link restarted: register again
+    v1_controls_registered_ = false;
     // test/v1-protocol : pas de fallback V1↔V3 — on reste sur V1 fixe jusqu'à l'ACK.
     // Trame officielle de la clé FireNet V2.26 (STM32 VA 0x08012304). Le poêle l'a
     // acquittée (GET_WIFI_VERSION_FINISHED) les 16, 20 et 21/09 ; la forme « pure »
@@ -210,10 +214,27 @@ public:
     send(f);
     v1_sensors_registered_ = true;
   }
+  // Registers V1 control records 0..V1_CONTROL_COUNT-1 under the labels of the DOMO table (ctrlName(p, 2)). Flag 0 makes the
+  // stove post every registered record once, then only the changed ones. The registration stores the values sent in the
+  // records and the stove reloads them from its own variables at the next GET_REVISION: that GET_REVISION is queued right
+  // behind the frame so that no later command can apply the placeholder values. Record 0 (the revision) gets the real one.
+  void registerV1Controls() {
+    std::string f = "GET_CONTROLS=0; ";
+    char v[16];
+    for (int p = 0; p < V1_CONTROL_COUNT; p++) {
+      f += ctrlName(p, 2);
+      snprintf(v, sizeof v, "=%ld; ", p == 0 ? (long)model_.revision : 0L);
+      f += v;
+    }
+    send(f);
+    sendRevision();
+    transferCompleted();
+    v1_controls_registered_ = true;
+  }
   void pollControls(const std::vector<std::string>& names = {}) {
     if (model_.generation == 2) {
-      send("GET_CONTROLS=0; \n");
-      transferCompleted();
+      // Once registered the stove posts the changed controls on its own at the TRANSFER_COMPLETED of the sensor poll.
+      if (!v1_controls_registered_) registerV1Controls();
     } else {
       sendTable("GET_CONTROLS", names, 0);
       sendRevision();
@@ -292,6 +313,8 @@ public:
              "GET_CONTROLS=1; revision=%ld; onOff=%ld; mode=%ld; targetStage=%ld; roomTarget=%ld; ",
              (long)model_.revision, onOff, mode, targetStage, roomTarget);
     send(b);
+    // A GET_CONTROLS frame replaces the registered names: on a V1 stove only these five stay registered until the next poll.
+    if (model_.generation == 2) v1_controls_registered_ = false;
     // Immediately chain revision request and flush to force the stove
     // to return updated telemetry within ~1.2s instead of waiting for the periodic loop
     sendRevision();
@@ -427,6 +450,9 @@ private:
       pending_pos_ = nullptr; parseStatus(buf); return;
     }
     if (buf.find("POST_CONTROLS") != std::string::npos) {
+      // V1: named records (all after the registration, then only the changed ones): update the DOMO-indexed vector in place.
+      if (model_.generation == 2 &&
+          parseV1Named(afterHeader(buf), ctrlIndexByName, model_.controls_pos, model_.controls) > 0) return;
       std::vector<long> tmpPos;
       parseBody(afterHeader(buf), &model_.controls, tmpPos);
       if (tmpPos.size() >= 5) {
@@ -445,7 +471,7 @@ private:
       if (model_.generation == 2 && v1_sensors_registered_) {
         // V1: named records, only the changed ones are sent: update the DOMO-indexed vector in place.
         pending_pos_ = nullptr;
-        parseV1Sensors(afterHeader(buf)); postSensors(); return;
+        parseV1Named(afterHeader(buf), sensIndexByName, model_.sensors_pos, model_.sensors); postSensors(); return;
       }
       model_.sensors_pos.clear(); pending_pos_ = &model_.sensors_pos;
       parseBody(afterHeader(buf), &model_.sensors, model_.sensors_pos); postSensors(); return; }
@@ -494,7 +520,7 @@ private:
           if (!name.empty()) {
             (*store)[name] = v;
           } else if (store == &model_.controls) {
-            (*store)[ctrlName((int)pos.size() - 1)] = v;
+            (*store)[ctrlName((int)pos.size() - 1, model_.generation)] = v;
           } else if (store == &model_.sensors) {
             (*store)[sensName((int)pos.size() - 1, model_.generation)] = v;
           }
@@ -503,10 +529,13 @@ private:
       i = sc + 1;
     }
   }
-  // POST_SENSORS of a V1 stove after registration: "name=value; " pairs of the changed records (all of them after
-  // the registration frame). The name gives the record, so the position does not depend on the frame content.
-  // sensors_pos is indexed like the DOMO table (sensIndexByName), the stove's V1 position + 1 from position 2.
-  void parseV1Sensors(const std::string& body) {
+  // POST_SENSORS / POST_CONTROLS of a V1 stove after registration: "name=value; " pairs of the changed records (all of
+  // them after the registration frame). The name gives the record, so the position does not depend on the frame content.
+  // `pos` is indexed like the DOMO tables (sensIndexByName / ctrlIndexByName), the stove's V1 record shifted as in
+  // v1ToDomoIndex / v1ToDomoCtrlIndex. Returns how many pairs were stored.
+  int parseV1Named(const std::string& body, int (*indexByName)(const std::string&),
+                   std::vector<long>& pos, std::map<std::string,long>& store) {
+    int n = 0;
     size_t i = 0;
     while (i < body.size()) {
       size_t sc = body.find(';', i); if (sc == std::string::npos) sc = body.size();
@@ -515,15 +544,17 @@ private:
       if (eq != std::string::npos && !trim(item).empty()) {
         std::string name = trim(item.substr(0, eq));
         long v = strtol(trim(item.substr(eq + 1)).c_str(), nullptr, 10);
-        int idx = sensIndexByName(name);
+        int idx = indexByName(name);
         if (idx >= 0 && idx < 128) {
-          if ((int)model_.sensors_pos.size() <= idx) model_.sensors_pos.resize(idx + 1, 0);
-          model_.sensors_pos[idx] = v;
-          model_.sensors[name] = v;
+          if ((int)pos.size() <= idx) pos.resize(idx + 1, 0);
+          pos[idx] = v;
+          store[name] = v;
+          n++;
         }
       }
       i = sc + 1;
     }
+    return n;
   }
   void postSensors() { /* hook : le firmware relit model().sensors après un cycle */ }
   static std::string trim(const std::string& s) {
@@ -534,6 +565,7 @@ private:
 
   TxFn tx_; NowFn now_;
   bool v1_sensors_registered_ = false;      // names of GET_SENSORS sent since the last version handshake
+  bool v1_controls_registered_ = false;     // names of GET_CONTROLS sent since the last version handshake or command
   StoveModel model_;
   std::string rx_;
   bool silence_pending_ = false;

@@ -49,7 +49,14 @@ int main(){
   CHECK("14","sens 0 = roomTemp", sensName(0)=="roomTemp");
   CHECK("14","sens 31 = mainState", sensName(31)=="mainState");
   CHECK("14","sens 33 = rssi", sensName(33)=="rssi");
-  CHECK("13","control non identifié -> cNN", ctrlName(9)=="c09");
+  CHECK("13","control non identifié -> cNN", ctrlName(34)=="c34");
+  CHECK("13","V1 record 4 = roomTarget, 5 = reserved6 (no bakeTarget on the 2.27)", ctrlName(4,2)=="roomTarget" && ctrlName(5,2)=="reserved6");
+  CHECK("13","V1 records 6 / 19 = heatTimeMon1 / heatTimeSun2", ctrlName(6,2)=="heatTimeMon1" && ctrlName(19,2)=="heatTimeSun2");
+  CHECK("13","V1 record 20 / 21 = heatingTimesActive / setBackTemp", ctrlName(20,2)=="heatingTimesActive" && ctrlName(21,2)=="setBackTemp");
+  CHECK("13","V1 records 29 / 30 / 31 = frostProtectionTemp / roomTempOffset / roomSensorPower",
+        ctrlName(29,2)=="frostProtectionTemp" && ctrlName(30,2)=="roomTempOffset" && ctrlName(31,2)=="roomSensorPower");
+  CHECK("13","V1 record 36 = DOMO 37 unlabelled", ctrlName(36,2)=="c37");
+  CHECK("13","ctrlIndexByName label / cNN / unknown", ctrlIndexByName("onOff")==1 && ctrlIndexByName("c34")==34 && ctrlIndexByName("foo")==-1 && ctrlIndexByName("")==-1);
 
   // §5.4 log password redaction
   std::string sanF = sanitizeForLog(f);

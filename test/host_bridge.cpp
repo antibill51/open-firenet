@@ -77,6 +77,7 @@ int main(){
       auto ss=m.sensors.find("subState"); if(ss!=m.sensors.end()) std::cout<<" subState="<<ss->second;
       std::cout<<" spn="<<m.sensors_pos.size();
       for(size_t i=0;i<m.sensors_pos.size();i++) std::cout<<" sp"<<i<<"="<<m.sensors_pos[i];
+      for(size_t i=0;i<m.controls_pos.size();i++) std::cout<<" cp"<<i<<"="<<m.controls_pos[i];
       std::cout<<"\n";
     }
     while(link.txPending()>0){ g_clk += DongleLink::TX_GAP_MS; link.poll(); }
