@@ -29,7 +29,8 @@ int main(){
   std::string line;
   while(std::getline(std::cin,line)){
     std::istringstream is(line); std::string cmd; is>>cmd;
-    if(cmd=="RX"){ std::string h; is>>h; for(char c: fromHex(h)) link.onByte((uint8_t)c); }
+    if(cmd=="SETSTAGE"){ int s; is>>s; link.debugSetStage(s); }
+    else if(cmd=="RX"){ std::string h; is>>h; for(char c: fromHex(h)) link.onByte((uint8_t)c); }
     else if(cmd=="TICK"){ uint32_t d; is>>d; g_clk+=d; link.poll(); }
     else if(cmd=="REQSTATUS"){ link.requestStatus(); }
     else if(cmd=="PUSHSTATUS"){ std::string s,w; is>>s>>w; link.pushStatus(s,w); }

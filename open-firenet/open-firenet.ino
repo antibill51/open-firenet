@@ -371,7 +371,10 @@ static String jsonState() {
   j += "\"uptime_seconds\":" + String(millis() / 1000UL) + ",";
   j += "\"write_enabled\":true,";
   j += "\"version_ack\":" + String(m.version_ack ? "true" : "false") + ",";
-  j += "\"version_frame\":\"" + String(m.version_profile < 0 ? "?" : (m.version_profile == 1 ? "V1" : "V3")) + "\",";
+  // version_profile: which family's probe got acked (DongleLink::DETECT_V3=0, DETECT_V28=1, DETECT_V1=2); a
+  // detected 2.28 still runs the DOMO/V3 protocol (generation=1), this label is for display only.
+  const char* verFrameLabel = m.version_profile == 0 ? "V3" : (m.version_profile == 1 ? "V28" : (m.version_profile == 2 ? "V1" : "?"));
+  j += "\"version_frame\":\"" + String(verFrameLabel) + "\",";
   j += "\"generation\":" + String(m.generation) + ",";
   j += "\"frames_in\":" + String(m.frames_in) + ",";
   j += "\"frames_out\":" + String(m.frames_out) + ",";

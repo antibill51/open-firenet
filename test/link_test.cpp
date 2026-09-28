@@ -10,21 +10,22 @@ int main(){
   auto CH=[&](const char*n,bool c){ if(c)ok++; else{ko++; std::cout<<"ECHEC "<<n<<"\n";} };
   // émission cadencée : poll empile puis émet une trame par TX_GAP_MS -> on draine
   auto drain=[&](){ for(int i=0;i<64 && !link.txIdle();i++){ clk+=DongleLink::TX_GAP_MS; link.poll(); } };
-  // négociation
-  link.poll(); drain();              // queue + emit the version (V1 profile by default)
-  CH("V1 version emitted", wire.find("GET_WIFI_VERSION_GET_CDCDEVICE_VERSION=0; ")!=std::string::npos);
+  // négociation : DOMO/V3 est la première famille sondée (zéro changement pour les utilisateurs DOMO existants)
+  link.poll(); drain();
+  CH("V3 version emitted first (detection default)", wire.find("GET_CDCDEVICE3_VERSION=0; ")!=std::string::npos);
   // le poêle répond FINISHED
   std::string fin="GET_CDCDEVICE_VERSION_FINISHED";
   for(char c:fin) link.onByte(c);
   clk+=60; link.poll();              // silence écoulé (>SILENCE_MS après le dernier octet)
   CH("version acquittée", link.model().version_ack && link.model().generation==1);
-  CH("V1 profile locked after ACK", link.model().version_profile==1);
+  CH("V3 profile locked after ACK", link.model().version_profile==DongleLink::DETECT_V3);
   // stove emits POST_CDCDEVICE_STATUS with plain text SSID (DT=1, 19 fields)
   wire.clear();
-  std::string st="POST_CDCDEVICE_STATUS=0;\n0\n1\n0\n0\n5\n0\n0\n101\n112\n360\n0\n-52\n17800020\nfHTeLam2\n3\nMonSSID\nsecret\n192.168.1.5\nAA:BB\n";
+  // ssid hex-encoded: DOMO/V3 dialect (dt()==3) hex-encodes it on the wire, ASCII "MonSSID"
+  std::string st="POST_CDCDEVICE_STATUS=0;\n0\n1\n0\n0\n5\n0\n0\n101\n112\n360\n0\n-52\n17800020\nfHTeLam2\n3\n4D6F6E53534944\nsecret\n192.168.1.5\nAA:BB\n";
   for(char c:st) link.onByte(c);
   clk+=60; link.poll();              // silence elapsed
-  CH("plain ssid parsed", link.model().status.at("ssid")=="MonSSID");
+  CH("hex ssid decoded back to plain text", link.model().status.at("ssid")=="MonSSID");
   CH("app_version parsed", link.model().status.at("app_version")=="112");
   // POST_SENSORS différentiel
   std::string ps="POST_SENSORS=0; temp=213; status=1; ";
@@ -154,6 +155,7 @@ int main(){
     DongleLink l5([&](const uint8_t*d,size_t n){ w5.append((const char*)d,n); },
                   [&](){ return c5; });
     l5.setCredentials("MonSSID", "MonPass", "192.168.1.50", "AA:BB:CC:DD:EE:FF");
+    l5.debugSetStage(DongleLink::DETECT_V1);   // this block exercises V1 (INDUO 2.26/2.27) specifics only
     auto drain5=[&](){ for(int i=0;i<64 && !l5.txIdle();i++){ c5+=DongleLink::TX_GAP_MS; l5.poll(); } };
     l5.poll(); drain5();
     CH("V1 initial version emitted", w5.find("GET_WIFI_VERSION_GET_CDCDEVICE_VERSION=0; BL=101; APP=111; REV=360; DT=1; ")!=std::string::npos);
@@ -295,6 +297,7 @@ int main(){
     std::string w6; uint32_t c6=1000; int syn_lines=0;
     DongleLink l6([&](const uint8_t*d,size_t n){ w6.append((const char*)d,n); },
                   [&](){ return c6; });
+    l6.debugSetStage(DongleLink::DETECT_V1);   // this block exercises the V1 SYN-burst behaviour specifically
     l6.onDebug([&](const char* dir, const std::string&){ if (std::string(dir)=="syn") syn_lines++; });
     l6.onByte(0x16); l6.poll();
     CH("SYN: first 0x16 answered immediately", w6.find("GET_WIFI_VERSION_GET_CDCDEVICE_VERSION=0; ") != std::string::npos);
@@ -303,6 +306,67 @@ int main(){
     CH("SYN: reply rate capped (<= 1 per TX_GAP_MS)", frames <= 2000/DongleLink::TX_GAP_MS + 3);
     CH("SYN: every 0x16 counted", l6.synCount() == 251);
     CH("SYN: summarised, not logged per byte", syn_lines >= 1 && syn_lines <= 4);
+  }
+
+  // --- Auto-detection of the stove family (DOMO/V3 -> INDUO II 2.28 -> INDUO V1, cyclic) ---
+  // 5) Default order and per-stage content
+  {
+    std::string w7; uint32_t c7=0;
+    DongleLink l7([&](const uint8_t*d,size_t n){ w7.append((const char*)d,n); }, [&](){ return c7; });
+    auto drain7=[&](){ for(int i=0;i<64 && !l7.txIdle();i++){ c7+=DongleLink::TX_GAP_MS; l7.poll(); } };
+    l7.poll(); drain7();
+    CH("detect: DOMO/V3 probed first", w7.find("GET_CDCDEVICE3_VERSION=0; BL=999; APP=201; REV=12201; DT=3; ") != std::string::npos);
+    w7.clear();
+    c7 += DongleLink::STAGE_TIMEOUT_MS; l7.poll(); drain7();
+    CH("detect: after STAGE_TIMEOUT_MS, INDUO II 2.28 is probed next (bare CDCDEVICE dialect, APP=112)",
+       w7.find("GET_CDCDEVICE_VERSION=0; BL=101; APP=112; REV=13301; DT=1; ") != std::string::npos &&
+       w7.find("GET_WIFI_VERSION") == std::string::npos);
+    w7.clear();
+    c7 += DongleLink::STAGE_TIMEOUT_MS; l7.poll(); drain7();
+    CH("detect: after another STAGE_TIMEOUT_MS, INDUO V1 is probed (the combined, hardware-validated frame)",
+       w7.find("GET_WIFI_VERSION_GET_CDCDEVICE_VERSION=0; BL=101; APP=111; REV=360; DT=1; ") != std::string::npos);
+    w7.clear();
+    c7 += DongleLink::STAGE_TIMEOUT_MS; l7.poll(); drain7();
+    CH("detect: cycles back to DOMO/V3 after INDUO V1", w7.find("GET_CDCDEVICE3_VERSION=0; ") != std::string::npos);
+  }
+  // 6) A 2.28 answering the bare CDCDEVICE probe locks generation=1 (the DOMO protocol, see stageProfile) and
+  // is told apart from a DOMO answering the SAME "GET_CDCDEVICE_VERSION_FINISHED" text via which stage was
+  // actually pending (model_.version_profile), not the reply text (which is identical for both families).
+  {
+    std::string w8; uint32_t c8=0;
+    DongleLink l8([&](const uint8_t*d,size_t n){ w8.append((const char*)d,n); }, [&](){ return c8; });
+    l8.debugSetStage(DongleLink::DETECT_V28);
+    l8.poll();
+    for (char c : std::string("GET_CDCDEVICE_VERSION_FINISHED")) l8.onByte(c);
+    c8 += 60; l8.poll();
+    CH("detect: 2.28 ack sets generation=1 (reuses the DOMO protocol)", l8.model().generation == 1 && l8.model().version_ack);
+    CH("detect: version_profile records DETECT_V28, not DOMO/V3", l8.model().version_profile == DongleLink::DETECT_V28);
+  }
+  // 7) A FINISHED reply for a stage we are no longer probing (arrived late, after a retry moved us on) is
+  // ignored rather than locking onto a family we did not just ask about.
+  {
+    std::string w9; uint32_t c9=0;
+    DongleLink l9([&](const uint8_t*d,size_t n){ w9.append((const char*)d,n); }, [&](){ return c9; });
+    l9.debugSetStage(DongleLink::DETECT_V1);
+    l9.poll();
+    for (char c : std::string("GET_CDCDEVICE_VERSION_FINISHED")) l9.onByte(c);   // stale V3/2.28-shaped reply
+    c9 += 60; l9.poll();
+    CH("detect: a CDCDEVICE ack while probing V1 is ignored", !l9.model().version_ack && l9.model().generation == 0);
+  }
+  // 8) Fast reacquire: after a session reset, re-detection starts at the last stage that worked, not at DOMO/V3.
+  {
+    std::string w10; uint32_t c10=0;
+    DongleLink l10([&](const uint8_t*d,size_t n){ w10.append((const char*)d,n); }, [&](){ return c10; });
+    l10.debugSetStage(DongleLink::DETECT_V1);
+    l10.poll();
+    for (char c : std::string("GET_WIFI_VERSION_FINISHED")) l10.onByte(c);
+    c10 += 60; l10.poll();
+    CH("fast reacquire: V1 acked", l10.model().version_ack && l10.model().generation == 2);
+    w10.clear();
+    l10.onByte(0x02); l10.onByte('0'); l10.onByte(0x03);   // session reset
+    c10 += 60; l10.poll();
+    for(int i=0;i<4 && !l10.txIdle();i++){ c10+=DongleLink::TX_GAP_MS; l10.poll(); }   // drain the queued frame
+    CH("fast reacquire: re-probes V1 directly, not DOMO/V3", w10.find("GET_WIFI_VERSION_GET_CDCDEVICE_VERSION=0; ") != std::string::npos);
   }
 
   std::cout << ok << " ok, " << ko << " failures\n";

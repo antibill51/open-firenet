@@ -105,41 +105,70 @@ public:
   size_t txPending() const { return txq_.size(); }
 
   // --- émissions (rôle dongle) ----------------------------------------------
-  // Sur cette branche test/v1-protocol, le profil est verrouillé sur V1 :
-  //   "GET_WIFI_VERSION_GET_CDCDEVICE_VERSION=0; BL=101; APP=111; REV=360; DT=1; "
-  // Prouvé par décompilation du firmware officiel clé FireNet V2.26 (STM32 VA 0x08012304) :
-  // le firmware officiel de la clé émet cette chaîne exacte et le poêle INDUO
-  // (confirmé le 16/09 par Cyril) y répond immédiatement GET_WIFI_VERSION_FINISHED.
-  // BL=101, APP=111, REV=360, DT=1. Le poêle INDUO 2.27 exige APP == 111 exactement (fn 0x8001d7ec du
-  // désassemblage, `MOV R8,0x6f`) ; il répond FINISHED AVANT de valider la version, donc un FINISHED reçu
-  // ne prouve pas que APP est accepté. Un INDUO II 2.28 exige 112 (fn 0x800431f0). Autre valeur => le poêle
-  // passe en « OFFLINE UPDATE INIT » et répond \x02 0 \x03 à tout.
+  // Auto-detection: three stove families are probed in turn, one frame at a time, each with its own APP so
+  // a real stove of that family validates correctly on the first try (see stageProfile). Probe order: DOMO/V3
+  // first (unchanged from main's production behaviour: existing DOMO users see no change and reach ACK on
+  // their very first try), then INDUO II 2.28 (bare "GET_CDCDEVICE_VERSION=0; ..." with NO "GET_WIFI_VERSION"
+  // prefix and APP=112), then INDUO 2.26/2.27 (V1, hardware-validated with Cyril, issue #4).
+  // Why the 2.28 probe is read as safe on a real 2.27/2.26: the strstr chain of fn 0x8004beac only recognises
+  // "GET_WIFI_VERSION", "POST_FIRENET_STATUS", "GET_FIRENET_STATUS", "GET_NETWORKS", "TRANSFER_COMPLETED",
+  // "GET_REVISION", "GET_CONTROLS", "GET_SENSORS" (none is a substring of our bare CDCDEVICE probe), and no
+  // "GET_CDCDEVICE" string exists anywhere in the 2.27 image; read directly (run 2026-09-28): when the LAST
+  // check in that chain (GET_SENSORS, 0x8004ccee) also fails to match, execution falls to the shared exit at
+  // 0x8004cea6 (clears the 2048-byte command buffer and its write index, logs one line, returns) -- the exact
+  // same cleanup every OTHER command (matched or not) already falls through to, so it carries no side effect,
+  // no error state, no counter change. NOT verified the same way on a real INDUO II 2.28 or DOMO (no 2.28
+  // hardware, DOMO firmware not disassembled): the probe's inertness on a mismatched family and its APP=112
+  // validation on a real 2.28 rest on the 2.27 proof plus reading the 2.28 chain (`GET_WIFI_VERSION=0` first,
+  // else `GET_CDCDEVICE_VERSION`, then fn 0x800431f0 checks APP==112), not on a live test.
+  // A detected 2.28 is mapped to generation 1 (the DOMO/V3 protocol), not a new generation value: the 2.28
+  // sensor/control table is DOMO-identical position for position (no shift; only the 2.27 table is shifted,
+  // see v1ToDomoIndex/v1ToDomoCtrlIndex), and its command chain also accepts GET_CDCDEVICE_STATUS, the dialect
+  // DOMO uses -- so once acked, a 2.28 is indistinguishable from a DOMO for everything that follows. Which
+  // probe actually answered is kept in model_.version_profile (0=DOMO/V3, 1=INDUO II 2.28, 2=INDUO V1) for
+  // logging only.
+  enum { DETECT_V3 = 0, DETECT_V28 = 1, DETECT_V1 = 2, DETECT_STAGE_COUNT = 3 };
   struct VersionProfile { const char* prefix; int bl; int app; int rev; int dt; };
-  static const VersionProfile& profileV1() { static const VersionProfile p =
-      {"GET_WIFI_VERSION_GET_CDCDEVICE_VERSION=0; ", 101, 111, 360, 1}; return p; }
-  static const VersionProfile& profileV3() { static const VersionProfile p =
-      {"GET_CDCDEVICE3_VERSION=0; ", 999, 201, 12201, 3}; return p; }
-  const VersionProfile& profile() const { return profile_ ? profileV1() : profileV3(); }
-  int dt() const { return profile().dt; }      // effective DT of the active profile
+  static const VersionProfile& stageProfile(int stage) {
+    static const VersionProfile v3  = {"GET_CDCDEVICE3_VERSION=0; ", 999, 201, 12201, 3};
+    static const VersionProfile v28 = {"GET_CDCDEVICE_VERSION=0; ", 101, 112, 13301, 1};
+    static const VersionProfile v1  = {"GET_WIFI_VERSION_GET_CDCDEVICE_VERSION=0; ", 101, 111, 360, 1};
+    return stage == DETECT_V3 ? v3 : (stage == DETECT_V28 ? v28 : v1);
+  }
+  // dt() reflects the LOCKED generation (sticky across a reset, see dispatch()), not the stage currently being
+  // probed for re-detection: only pushStatus()/hexEncode callers use it, and they only run once acked.
+  int dt() const { return model_.generation == 1 ? 3 : 1; }
 
+  // Advances to the next family after STAGE_TIMEOUT_MS of silence on the current one. Time-based rather than a
+  // per-call counter: sendVersion() can fire more than once for a single real event (the immediate SYN-byte
+  // reply in onByte() AND the delayed dispatch() re-arm both fire for one "\x16 3" probe), so counting calls
+  // would burn through a stage's tries far faster than the retries it was meant to allow.
+  static const uint32_t STAGE_TIMEOUT_MS = 3000;   // 3x VERSION_RETRY_MS (declared later in the class)
+  void maybeAdvanceStage() {
+    if (now_() - stage_start_ms_ >= STAGE_TIMEOUT_MS) {
+      detect_stage_ = (detect_stage_ + 1) % DETECT_STAGE_COUNT;
+      stage_start_ms_ = now_();
+    }
+  }
   void sendVersion() {
     v1_sensors_registered_ = false;         // the stove forgets nothing on its side, but the link restarted: register again
     v1_controls_registered_ = false;
-    // test/v1-protocol : pas de fallback V1↔V3 — on reste sur V1 fixe jusqu'à l'ACK.
-    // Trame officielle de la clé FireNet V2.26 (STM32 VA 0x08012304). Le poêle l'a
-    // acquittée (GET_WIFI_VERSION_FINISHED) les 16, 20 et 21/09 ; la forme « pure »
-    // sans DT= n'a jamais été acquittée (22/09, 23/09).
+    if (!model_.version_ack) maybeAdvanceStage();
+    const VersionProfile& p = stageProfile(detect_stage_);
     char b[96];
-    snprintf(b, sizeof b, "%sBL=%d; APP=%d; REV=%d; DT=%d; ",
-             profileV1().prefix, profileV1().bl, profileV1().app, profileV1().rev, profileV1().dt);
+    snprintf(b, sizeof b, "%sBL=%d; APP=%d; REV=%d; DT=%d; ", p.prefix, p.bl, p.app, p.rev, p.dt);
     send(b);
-    profile_tries_++;
   }
 
   void setCredentials(const std::string& ssid, const std::string& pass,
                       const std::string& ip = "", const std::string& mac = "") {
     ssid_ = ssid; pass_ = pass; ip_ = ip; mac_ = mac;
   }
+
+  // Test-only: jump straight to a detection stage instead of cycling through the earlier ones. Nothing in the
+  // firmware calls this; it only exists so tests of one stove family do not have to replay the full 3-stage,
+  // multi-second detection sequence (STAGE_MAX_TRIES x VERSION_RETRY_MS per stage) to reach it.
+  void debugSetStage(int stage) { detect_stage_ = stage; stage_start_ms_ = now_(); }
 
   void requestStatus() {
     if (model_.generation == 2) {
@@ -167,11 +196,14 @@ public:
     std::string ssid = (dt() == 3) ? hexEncode(s_ssid) : s_ssid;
     std::string f = (model_.generation == 2) ? "GET_FIRENET_STATUS=0;\n"
                                               : "GET_CDCDEVICE_STATUS=0;\n";
+    // Echo the bl/app/rev of the profile that actually got acked (model_.version_profile), not necessarily the
+    // one currently being (re-)probed: a 2.28 echoes 101/112/13301, a DOMO 999/201/12201, distinctly.
+    const VersionProfile& ackedProfile = stageProfile(model_.version_profile >= 0 ? model_.version_profile : DETECT_V3);
     char rssis[8], apps[8], bls[8], revs[8];
     snprintf(rssis, sizeof rssis, "%d", rssi);
-    snprintf(apps, sizeof apps, "%d", profile().app);
-    snprintf(bls, sizeof bls, "%d", profile().bl);
-    snprintf(revs, sizeof revs, "%d", profile().rev);
+    snprintf(apps, sizeof apps, "%d", ackedProfile.app);
+    snprintf(bls, sizeof bls, "%d", ackedProfile.bl);
+    snprintf(revs, sizeof revs, "%d", ackedProfile.rev);
     const char* vals[19] = {
       "0","1","0","0","1","4","0",          // monitoring,on_off,scan,init,initialised,symbol,error
       bls, apps, revs, "0", rssis,           // bl,app,rev,spwf,rssi
@@ -391,15 +423,22 @@ private:
     std::string clean = trim(buf);
     bool looksLikeProbe = (clean == "3" || clean == "0" || buf.find('\x16') != std::string::npos ||
                            (buf.find('\x02') != std::string::npos && buf.find('0') != std::string::npos));
+    // Only accept the ACK for the stage we actually just probed with: a stray/late reply for a stage we have
+    // since moved past (retry timeout) is ignored rather than locking onto a family we did not just ask about.
     if (buf.find("GET_WIFI_VERSION_FINISHED") != std::string::npos) {
-      model_.generation = 2; model_.version_ack = true;
-      model_.version_profile = profile_; post_ack_probe_streak_ = 0;
-      pushStatus();
+      if (detect_stage_ == DETECT_V1) {
+        model_.generation = 2; model_.version_ack = true;
+        model_.version_profile = DETECT_V1; last_good_stage_ = DETECT_V1; post_ack_probe_streak_ = 0;
+        pushStatus();
+      }
       return;
     }
     if (buf.find("GET_CDCDEVICE_VERSION_FINISHED") != std::string::npos) {
-      model_.generation = 1; model_.version_ack = true;
-      model_.version_profile = profile_; post_ack_probe_streak_ = 0; return;
+      if (detect_stage_ == DETECT_V3 || detect_stage_ == DETECT_V28) {
+        model_.generation = 1; model_.version_ack = true;               // 2.28 reuses the DOMO/V3 protocol, see stageProfile
+        model_.version_profile = detect_stage_; last_good_stage_ = detect_stage_; post_ack_probe_streak_ = 0;
+      }
+      return;
     }
     if (buf.find("GET_CDCDEVICE_VERSION_UNFINISHED") != std::string::npos) return;
     if (!model_.version_ack && looksLikeProbe) {
@@ -416,8 +455,10 @@ private:
       model_.version_ack = false;
       model_.version_profile = -1;
       post_ack_probe_streak_ = 0;
-      profile_ = 1;          // rester sur V1 — le poêle INDUO ne comprend pas V3
-      profile_tries_ = 0;    // remettre le compteur à zéro pour ne pas déclencher de fallback
+      // Re-detection: start at the family that just worked (fast reacquire) rather than the full cycle,
+      // falling back to DOMO/V3 first only on the very first handshake of the session.
+      detect_stage_ = last_good_stage_ >= 0 ? last_good_stage_ : DETECT_V3;
+      stage_start_ms_ = now_();
       txq_.clear();
       sendVersion();
       last_tx_ms_ = 0;
@@ -432,8 +473,8 @@ private:
         model_.version_ack = false;
         model_.version_profile = -1;
         post_ack_probe_streak_ = 0;
-        profile_ = 1;          // rester sur V1 au re-arm
-        profile_tries_ = 0;
+        detect_stage_ = last_good_stage_ >= 0 ? last_good_stage_ : DETECT_V3;
+        stage_start_ms_ = now_();
         txq_.clear();
         sendVersion();
         last_tx_ms_ = 0;
@@ -571,12 +612,10 @@ private:
   bool silence_pending_ = false;
   uint32_t last_version_ms_ = 0;
   bool version_sent_ = false;
-  // automatic version-frame fallback. profile_: 0 = V3, 1 = V1.
-  // Start on V1 (older stoves); if the stove does not acknowledge, sendVersion()
-  // switches to V3, and back again, until an ACK arrives.
-  int profile_ = 1;
-  int profile_tries_ = 0;
-  static const int PROFILE_SWITCH_AFTER = 3;   // unacked attempts before switching
+  // Version-frame auto-detection state (see stageProfile / DETECT_* / maybeAdvanceStage above).
+  int detect_stage_ = DETECT_V3;   // probed first: zero change for existing DOMO/main users on their first try
+  uint32_t stage_start_ms_ = 0;    // when the current stage started, for the STAGE_TIMEOUT_MS advance
+  int last_good_stage_ = -1;       // last stage that got acked this session: reused first on a reset
   int rssi_ = -55;
   uint32_t dropped_ = 0;
   std::deque<std::string> txq_;

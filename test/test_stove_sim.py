@@ -260,6 +260,9 @@ class InduoV1StoveSimulator:
 def run_induo_simulation_tests():
     print("=== Démarrage des Tests de Simulation Poêle INDUO V1 ===")
     bridge = HostBridgeDriver("/tmp/host_bridge")
+    # This file tests the V1 (INDUO 2.26/2.27) dialect specifically: skip the DOMO/2.28 detection stages,
+    # which the firmware now tries first by default (see DongleLink::DETECT_V3/DETECT_V28/DETECT_V1).
+    bridge.send_cmd("SETSTAGE 2")
     stove = InduoV1StoveSimulator()
 
     passed = 0
