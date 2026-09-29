@@ -187,7 +187,11 @@ public:
     // Le poêle INDUO valide l'ID et le token de la trame de statut (désassemblage 2.27,
     // fn 0x8001d324, code d'erreur 0x1b = "UW27") : ID = exactement 8 chiffres,
     // token = exactement 8 caractères imprimables (0x21..0x7E). "0000000" (7) => UW27.
-    const std::string id = !idArg.empty() ? idArg : (model_.generation == 2 ? "00000000" : "0000000");
+    // The 2.28 needs the same 8-digit ID (read directly, "on the 2.28 the ID must be 8 digits ... in both
+    // dialects, exactly as on the 2.27"), even though it is reached here through generation=1 (DOMO dialect):
+    // keyed off version_profile, not generation, so a real DOMO (profile V3) keeps its proven 7-digit default.
+    bool induoFamily = model_.version_profile == DETECT_V1 || model_.version_profile == DETECT_V28;
+    const std::string id = !idArg.empty() ? idArg : (induoFamily ? "00000000" : "0000000");
     std::string s_ssid = ssidClear.empty() ? ssid_ : ssidClear;
     std::string s_pass = wpa2.empty() ? pass_ : wpa2;
     std::string s_ip   = ip.empty() ? ip_ : ip;
@@ -437,6 +441,15 @@ private:
       if (detect_stage_ == DETECT_V3 || detect_stage_ == DETECT_V28) {
         model_.generation = 1; model_.version_ack = true;               // 2.28 reuses the DOMO/V3 protocol, see stageProfile
         model_.version_profile = detect_stage_; last_good_stage_ = detect_stage_; post_ack_probe_streak_ = 0;
+        // INDUO II 2.28 only (not DOMO/V3): request status right away, like V1. Read 2026-09-29 on a real RIKA
+        // SONO (issue #4, darkranger555): the version ack alone did not unlock anything -- GET_SENSORS/
+        // GET_REVISION/TRANSFER_COMPLETED all went unanswered for ~50s, then the stove started firing its
+        // "nothing decoded" silence reply. On the INDUO 2.27 the decoder only starts processing commands once
+        // the ID/token status exchange succeeds (decision routine, fn 0x8001d930); the DOMO/V3 flow in the .ino
+        // only requests status AFTER sensor+control registration finishes, which never happens if the 2.28
+        // needs that unlock first -- a deadlock. Left untouched for a real DOMO (detect_stage_==DETECT_V3),
+        // since that flow is the one already proven in production.
+        if (detect_stage_ == DETECT_V28) pushStatus();
       }
       return;
     }

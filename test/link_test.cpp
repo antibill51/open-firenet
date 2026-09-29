@@ -369,6 +369,43 @@ int main(){
     CH("fast reacquire: re-probes V1 directly, not DOMO/V3", w10.find("GET_WIFI_VERSION_GET_CDCDEVICE_VERSION=0; ") != std::string::npos);
   }
 
+  // 9) INDUO II 2.28: status is requested right away after ack (unlike DOMO/V3, which defers it), with the
+  // 8-digit ID the disassembly confirms it needs (issue #4, darkranger555's SONO: no status request meant
+  // GET_SENSORS/GET_REVISION went unanswered forever).
+  {
+    std::string w11; uint32_t c11=0;
+    DongleLink l11([&](const uint8_t*d,size_t n){ w11.append((const char*)d,n); }, [&](){ return c11; });
+    l11.debugSetStage(DongleLink::DETECT_V28);
+    l11.poll();
+    for(int i=0;i<8 && !l11.txIdle();i++){ c11+=DongleLink::TX_GAP_MS; l11.poll(); }   // drain the pre-ack probe first
+    w11.clear();
+    for (char c : std::string("GET_CDCDEVICE_VERSION_FINISHED")) l11.onByte(c);
+    c11 += 60; l11.poll();
+    CH("2.28: generation=1 (DOMO protocol) after ack", l11.model().generation == 1 && l11.model().version_ack);
+    for(int i=0;i<8 && !l11.txIdle();i++){ c11+=DongleLink::TX_GAP_MS; l11.poll(); }
+    CH("2.28: status requested right after ack (GET_CDCDEVICE_STATUS)", w11.find("GET_CDCDEVICE_STATUS=0;\n") != std::string::npos);
+    CH("2.28: status carries an 8-digit ID, not DOMO/V3's 7-digit default",
+       w11.find("\n00000000\n") != std::string::npos && w11.find("\n0000000\n") == std::string::npos);
+  }
+  // 10) DOMO/V3 unchanged: no status pushed right after ack (still deferred to the .ino's own phase logic),
+  // and its own 7-digit ID default is untouched.
+  {
+    std::string w12; uint32_t c12=0;
+    DongleLink l12([&](const uint8_t*d,size_t n){ w12.append((const char*)d,n); }, [&](){ return c12; });
+    l12.debugSetStage(DongleLink::DETECT_V3);
+    l12.poll();
+    for(int i=0;i<8 && !l12.txIdle();i++){ c12+=DongleLink::TX_GAP_MS; l12.poll(); }   // drain the pre-ack probe first
+    w12.clear();
+    for (char c : std::string("GET_CDCDEVICE_VERSION_FINISHED")) l12.onByte(c);
+    c12 += 60; l12.poll();
+    for(int i=0;i<8 && !l12.txIdle();i++){ c12+=DongleLink::TX_GAP_MS; l12.poll(); }
+    CH("DOMO/V3: no status pushed automatically right after ack", w12.empty());
+    w12.clear();
+    l12.pushStatus();
+    for(int i=0;i<4 && !l12.txIdle();i++){ c12+=DongleLink::TX_GAP_MS; l12.poll(); }
+    CH("DOMO/V3: pushStatus() still uses its proven 7-digit ID default", w12.find("\n0000000\n") != std::string::npos);
+  }
+
   std::cout << ok << " ok, " << ko << " failures\n";
   return ko ? 1 : 0;
 }
