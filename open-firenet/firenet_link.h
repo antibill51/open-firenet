@@ -40,6 +40,12 @@ public:
   // V1 control records registered in GET_CONTROLS: 0..36 = every record of the 2.27 controls table (FINDINGS "2.27
   // controls table: record index -> destination"; at least 37 records). The DOMO / INDUO II labels are used, record 5 skipped.
   static constexpr int V1_CONTROL_COUNT = 37;
+  // INDUO II 2.28: same registration mechanism as V1 (disassembly: same decoder family, "GET_SENSORS handler
+  // ... *0x1ab0=0 unconditionally" applies to fn 0x8001b25c too, see "2.28 vs 2.27: same protocol machinery"),
+  // but the table itself is DOMO-identical (no shift -- only the 2.27 table has one fewer record). Counts cover
+  // DOMO positions 0..87 / 0..37 directly (V1's counts cover the same DOMO range, but through the shifted index).
+  static constexpr int V28_SENSOR_COUNT = 88;
+  static constexpr int V28_CONTROL_COUNT = 38;
   using TxFn  = std::function<void(const uint8_t*, size_t)>;
   using NowFn = std::function<uint32_t()>;
 
@@ -137,7 +143,18 @@ public:
   }
   // dt() reflects the LOCKED generation (sticky across a reset, see dispatch()), not the stage currently being
   // probed for re-detection: only pushStatus()/hexEncode callers use it, and they only run once acked.
-  int dt() const { return model_.generation == 1 ? 3 : 1; }
+  // Keyed on version_profile (V3/V28/V1), not the coarse `generation` field: a detected 2.28 shares generation=1
+  // with a real DOMO (same sensor/control table, see stageProfile), but NOT the DOMO's status wire format --
+  // read on a real RIKA SONO 2.28 (issue #4, darkranger555, 2026-09-30): sent the CDC dialect with a hex ssid
+  // and protocol="3" (the DOMO format) after the earlier fix already added the early status request, and the
+  // stove still never answered, then reset the session -- so the DOMO wire format itself was the remaining
+  // problem, not just its timing. A 2.28 now gets the exact same status format as V1 (FIRENET dialect, plain
+  // ssid, protocol="1"), which is also what its own historical key used for the version frame (FINDINGS "the
+  // official frame for the INDUO II 2.28 era is GET_WIFI_VERSION_GET_CDCDEVICE_VERSION=0; ... DT=1;"). UNTESTED:
+  // this is the next thing to confirm on real hardware, not proven by disassembly (2.28's status handler was
+  // never fully read, only its recognized command keywords).
+  int dt() const { return model_.version_profile == DETECT_V3 ? 3 : 1; }
+  bool induoDialect() const { return model_.version_profile == DETECT_V1 || model_.version_profile == DETECT_V28; }
 
   // Advances to the next family after STAGE_TIMEOUT_MS of silence on the current one. Time-based rather than a
   // per-call counter: sendVersion() can fire more than once for a single real event (the immediate SYN-byte
@@ -171,7 +188,7 @@ public:
   void debugSetStage(int stage) { detect_stage_ = stage; stage_start_ms_ = now_(); }
 
   void requestStatus() {
-    if (model_.generation == 2) {
+    if (induoDialect()) {
       pushStatus();
     } else {
       send("POST_CDCDEVICE_STATUS");
@@ -198,8 +215,8 @@ public:
     std::string s_mac  = mac.empty() ? mac_ : mac;
 
     std::string ssid = (dt() == 3) ? hexEncode(s_ssid) : s_ssid;
-    std::string f = (model_.generation == 2) ? "GET_FIRENET_STATUS=0;\n"
-                                              : "GET_CDCDEVICE_STATUS=0;\n";
+    std::string f = induoDialect() ? "GET_FIRENET_STATUS=0;\n"
+                                     : "GET_CDCDEVICE_STATUS=0;\n";
     // Echo the bl/app/rev of the profile that actually got acked (model_.version_profile), not necessarily the
     // one currently being (re-)probed: a 2.28 echoes 101/112/13301, a DOMO 999/201/12201, distinctly.
     const VersionProfile& ackedProfile = stageProfile(model_.version_profile >= 0 ? model_.version_profile : DETECT_V3);
@@ -211,7 +228,7 @@ public:
     const char* vals[19] = {
       "0","1","0","0","1","4","0",          // monitoring,on_off,scan,init,initialised,symbol,error
       bls, apps, revs, "0", rssis,           // bl,app,rev,spwf,rssi
-      id.c_str(), token.c_str(), (model_.generation == 2 ? "1" : "3"), // id,token,protocol
+      id.c_str(), token.c_str(), (induoDialect() ? "1" : "3"), // id,token,protocol
       ssid.c_str(), s_pass.c_str(),         // ssid,wpa2
       s_ip.c_str(), s_mac.c_str()};         // ip,mac
     for (int i = 0; i < 19; i++) { f += vals[i]; f += '\n'; }
@@ -228,7 +245,7 @@ public:
   // sent: the stove prepares its data in the GET_REVISION handler and emits it in the TRANSFER_COMPLETED one
   // (one POST per TRANSFER_COMPLETED, controls first); it re-sends a record only when its value changed.
   void pollSensors(const std::vector<std::string>& names = {}) {
-    if (model_.generation == 2) {
+    if (induoDialect()) {
       if (!v1_sensors_registered_) registerV1Sensors();
       sendRevision();
       transferCompleted();
@@ -243,10 +260,14 @@ public:
   // V1: the PRIO 2 records arrive by themselves at every 30th GET_REVISION (all registered records are then
   // refreshed). Sending "GET_SENSORS=2;" would only empty the registered list, so nothing is sent here.
   void pollPrio2Sensors() {}
-  // Registers V1 positions 0..V1_SENSOR_COUNT-1 under the labels of the DOMO table (sensName(p, 2)).
+  // Registers the sensor names once: V1 (2.27) positions under the DOMO-shifted labels (V1_SENSOR_COUNT, shift
+  // via sensName(p,2)); a detected 2.28 under the unshifted DOMO labels directly (V28_SENSOR_COUNT, sensName(p,0)).
   void registerV1Sensors() {
+    bool v1 = model_.version_profile == DETECT_V1;
+    int count = v1 ? V1_SENSOR_COUNT : V28_SENSOR_COUNT;
+    int shift = v1 ? DETECT_V1 : 0;   // sensName's shift selector: 2 = 2.27 shift, 0 = no shift (2.28/DOMO space)
     std::string f = "GET_SENSORS=0; ";
-    for (int p = 0; p < V1_SENSOR_COUNT; p++) { f += sensName(p, 2); f += "=0; "; }
+    for (int p = 0; p < count; p++) { f += sensName(p, shift); f += "=0; "; }
     send(f);
     v1_sensors_registered_ = true;
   }
@@ -255,10 +276,13 @@ public:
   // records and the stove reloads them from its own variables at the next GET_REVISION: that GET_REVISION is queued right
   // behind the frame so that no later command can apply the placeholder values. Record 0 (the revision) gets the real one.
   void registerV1Controls() {
+    bool v1 = model_.version_profile == DETECT_V1;
+    int count = v1 ? V1_CONTROL_COUNT : V28_CONTROL_COUNT;
+    int shift = v1 ? DETECT_V1 : 0;
     std::string f = "GET_CONTROLS=0; ";
     char v[16];
-    for (int p = 0; p < V1_CONTROL_COUNT; p++) {
-      f += ctrlName(p, 2);
+    for (int p = 0; p < count; p++) {
+      f += ctrlName(p, shift);
       snprintf(v, sizeof v, "=%ld; ", p == 0 ? (long)model_.revision : 0L);
       f += v;
     }
@@ -268,7 +292,7 @@ public:
     v1_controls_registered_ = true;
   }
   void pollControls(const std::vector<std::string>& names = {}) {
-    if (model_.generation == 2) {
+    if (induoDialect()) {
       // Once registered the stove posts the changed controls on its own at the TRANSFER_COMPLETED of the sensor poll.
       if (!v1_controls_registered_) registerV1Controls();
     } else {
@@ -350,7 +374,7 @@ public:
              (long)model_.revision, onOff, mode, targetStage, roomTarget);
     send(b);
     // A GET_CONTROLS frame replaces the registered names: on a V1 stove only these five stay registered until the next poll.
-    if (model_.generation == 2) v1_controls_registered_ = false;
+    if (induoDialect()) v1_controls_registered_ = false;
     // Immediately chain revision request and flush to force the stove
     // to return updated telemetry within ~1.2s instead of waiting for the periodic loop
     sendRevision();
@@ -496,8 +520,8 @@ private:
     }
     post_ack_probe_streak_ = 0;   // any real frame below => link is healthy again
     if (buf.find("GET_NETWORKS_FINISHED") != std::string::npos) return;
-    const char* wantStatus = (model_.generation == 2) ? "POST_FIRENET_STATUS"
-                                                       : "POST_CDCDEVICE_STATUS";
+    const char* wantStatus = induoDialect() ? "POST_FIRENET_STATUS"
+                                              : "POST_CDCDEVICE_STATUS";
     if (buf.find(wantStatus) != std::string::npos ||
         buf.find("POST_FIRENET_STATUS") != std::string::npos ||
         buf.find("POST_CDCDEVICE_STATUS") != std::string::npos) {
@@ -505,7 +529,7 @@ private:
     }
     if (buf.find("POST_CONTROLS") != std::string::npos) {
       // V1: named records (all after the registration, then only the changed ones): update the DOMO-indexed vector in place.
-      if (model_.generation == 2 &&
+      if (induoDialect() &&
           parseV1Named(afterHeader(buf), ctrlIndexByName, model_.controls_pos, model_.controls) > 0) return;
       std::vector<long> tmpPos;
       parseBody(afterHeader(buf), &model_.controls, tmpPos);
@@ -522,7 +546,7 @@ private:
       return;
     }
     if (buf.find("POST_SENSORS")  != std::string::npos) {
-      if (model_.generation == 2 && v1_sensors_registered_) {
+      if (induoDialect() && v1_sensors_registered_) {
         // V1: named records, only the changed ones are sent: update the DOMO-indexed vector in place.
         pending_pos_ = nullptr;
         parseV1Named(afterHeader(buf), sensIndexByName, model_.sensors_pos, model_.sensors); postSensors(); return;
