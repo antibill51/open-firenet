@@ -421,6 +421,44 @@ int main(){
     CH("DOMO/V3: pushStatus() still uses its proven 7-digit ID default", w12.find("\n0000000\n") != std::string::npos);
   }
 
+  // 11) Liveness ping: an INDUO-family stove only posts changes once names are registered, so the periodic status
+  // cycle also sends a bare POST_FIRENET_STATUS, which the stove answers (keeps the 60s no-RX watchdog fed).
+  {
+    std::string w13; uint32_t c13=0;
+    DongleLink l13([&](const uint8_t*d,size_t n){ w13.append((const char*)d,n); }, [&](){ return c13; });
+    l13.setCredentials("MonSSID", "MonPass");
+    l13.debugSetStage(DongleLink::DETECT_V1);
+    l13.poll();
+    for (char c : std::string("GET_WIFI_VERSION_FINISHED")) l13.onByte(c);
+    c13 += 60; l13.poll();
+    for(int i=0;i<8 && !l13.txIdle();i++){ c13+=DongleLink::TX_GAP_MS; l13.poll(); }
+    w13.clear();
+    l13.requestStatus();
+    for(int i=0;i<8 && !l13.txIdle();i++){ c13+=DongleLink::TX_GAP_MS; l13.poll(); }
+    size_t push = w13.find("GET_FIRENET_STATUS=0;\n"), ping = w13.find("POST_FIRENET_STATUS");
+    CH("V1 status cycle: pushes GET_FIRENET_STATUS then pings with a bare POST_FIRENET_STATUS",
+       push != std::string::npos && ping != std::string::npos && ping > push);
+    uint32_t before = l13.model().last_rx_ms;
+    c13 += 500;
+    std::string reply = "POST_FIRENET_STATUS=0;\n0\n1\n0\n0\n1\n4\n0\n101\n111\n360\n0\n-55\n00000000\n00000000\n1\nMonSSID\nMonPass\n192.168.0.52\nAA:BB\n";
+    for (char c : reply) l13.onByte(c);
+    c13 += 60; l13.poll();
+    CH("V1 ping reply refreshes last_rx and keeps the link acked",
+       l13.model().last_rx_ms > before && l13.model().version_ack && l13.model().status.at("ssid") == "MonSSID");
+
+    std::string w14; uint32_t c14=0;
+    DongleLink l14([&](const uint8_t*d,size_t n){ w14.append((const char*)d,n); }, [&](){ return c14; });
+    l14.debugSetStage(DongleLink::DETECT_V3);
+    l14.poll();
+    for (char c : std::string("GET_CDCDEVICE_VERSION_FINISHED")) l14.onByte(c);
+    c14 += 60; l14.poll();
+    for(int i=0;i<8 && !l14.txIdle();i++){ c14+=DongleLink::TX_GAP_MS; l14.poll(); }
+    w14.clear();
+    l14.requestStatus();
+    for(int i=0;i<8 && !l14.txIdle();i++){ c14+=DongleLink::TX_GAP_MS; l14.poll(); }
+    CH("DOMO/V3 status cycle unchanged (bare POST_CDCDEVICE_STATUS only)", w14 == "POST_CDCDEVICE_STATUS");
+  }
+
   std::cout << ok << " ok, " << ko << " failures\n";
   return ko ? 1 : 0;
 }

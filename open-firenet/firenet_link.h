@@ -190,6 +190,14 @@ public:
   void requestStatus() {
     if (induoDialect()) {
       pushStatus();
+      // Liveness ping: once the sensor/control names are registered, an INDUO-family stove only posts records
+      // that changed, so a stove idling in standby can stay silent for more than a minute (full PRIO2 refresh
+      // every 30 GET_REVISION) and the firmware's 60s no-RX watchdog restarted the ESP32 every ~65s (issue #4,
+      // Cyril's 2026-09-29 logs: last RX at ~7.6s, restart at ~67.6s, no error on the stove). A bare
+      // POST_FIRENET_STATUS is a request the stove always answers with its full status (read in the 2.27
+      // decoder, branch 0x8004c2d4..0x8004c470, FINDINGS run #20; the official key sends it too). Not yet
+      // confirmed on hardware; if the stove did not answer, behaviour would be the same as before.
+      send("POST_FIRENET_STATUS");
     } else {
       send("POST_CDCDEVICE_STATUS");
     }
