@@ -73,7 +73,7 @@ Pour créer et publier une release, lancez simplement le script depuis votre ter
    - Détecte les **Nouvelles fonctionnalités** (`feat:`, branches/PR `feat/*`) $\rightarrow$ incrément **MINOR**
    - Sinon (correctifs `fix:`, `refactor:`, `docs:`, etc.) $\rightarrow$ incrément **PATCH**
 6. Propose le tag calculé avec confirmation interactive (ou saisie d'un tag/type alternatif directement au prompt).
-7. Met à jour `OPENFIRENET_VERSION` dans le firmware, crée le commit et le tag annoté, puis pousse vers GitHub.
+7. Met à jour `OPENFIRENET_VERSION` dans le firmware et renomme la section `## Non publié` de `CHANGELOG.md` en `## vX.Y.Z (date)`, crée le commit (les deux fichiers) et le tag annoté, puis pousse vers GitHub.
 
 ---
 

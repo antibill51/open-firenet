@@ -7,7 +7,8 @@
 # 2. Vérification de la branche (main) et synchronisation remote
 # 3. Exécution obligatoire des tests unitaires
 # 4. Calcul automatique SemVer (patch / minor / major)
-# 5. Mise à jour et commit de OPENFIRENET_VERSION dans le firmware
+# 5. Mise à jour et commit de OPENFIRENET_VERSION dans le firmware, et de la section
+#    "## Non publié" de CHANGELOG.md renommée en "## vX.Y.Z (date)"
 # 6. Création et push du tag annoté pour déclencher la CI Release
 # ==============================================================================
 
@@ -223,9 +224,19 @@ if ! grep -q "#define OPENFIRENET_VERSION \"$CLEAN_VER\"" open-firenet/open-fire
 fi
 ok "OPENFIRENET_VERSION synchronisé (${CLEAN_VER})."
 
+# 10b. Notes de version : la section "## Non publié" de CHANGELOG.md devient celle de la release.
+# La section suivante est recréée par le premier feat/fix qui y ajoute une entrée.
+if [ -f CHANGELOG.md ] && grep -q "^## Non publié$" CHANGELOG.md; then
+  sed -i "s/^## Non publié$/## ${NEW_TAG} ($(date +%F))/" CHANGELOG.md
+  ok "CHANGELOG.md : section \"Non publié\" renommée en ${NEW_TAG}."
+else
+  warn "CHANGELOG.md sans section \"## Non publié\" : aucune note de version pour ${NEW_TAG}."
+fi
+
 # 11. Commit automatique de la version
 info "Commit automatique de la version ${NEW_TAG}..."
 git add open-firenet/open-firenet.ino
+[ -f CHANGELOG.md ] && git add CHANGELOG.md
 if ! git diff --cached --quiet; then
   git commit -m "chore(release): bump firmware version to ${NEW_TAG}"
   info "Push du commit sur origin/${CURRENT_BRANCH}..."
