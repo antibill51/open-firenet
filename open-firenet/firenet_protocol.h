@@ -163,32 +163,51 @@ enum Sens {
 // Étiquettes lisibles associées aux positions (§13 controls, §14 sensors). Le nom
 // est libre sur le fil ; seule la position a un sens matériel. "" = position non
 // identifiée (le firmware émet alors "sNN"/"cNN"). Sources : §13, §14, §14.3.
+// index = control record in the DOMO / INDUO II table (38 records; the INDUO 2.26/2.27 table is the same without
+// record 5, see v1ToDomoCtrlIndex). The comment is the official name of the record, from the order of the Rika cloud
+// "controls" object (same method as the sensors, see SENSOR_LABELS); records 33..37 are the five debug words that
+// are also sensor records debug0..debug4 (2.27 disassembly: same variables *(0x420c + 0xd0 .. 0xe0)).
 static const char* CONTROL_LABELS[] = {
-  /*0*/"revision", /*1*/"onOff", /*2*/"mode", /*3*/"targetStage",
-  /*4*/"roomTarget",                       // ×10 (§13, CTRL_ROOM_TARGET_SCALE)
-  /*5*/"bakeTarget",
-  /*6*/"reserved6",
-  /*7*/"heatTimeMon1", /*8*/"heatTimeMon2",
-  /*9*/"heatTimeTue1", /*10*/"heatTimeTue2",
-  /*11*/"heatTimeWed1", /*12*/"heatTimeWed2",
-  /*13*/"heatTimeThu1", /*14*/"heatTimeThu2",
-  /*15*/"heatTimeFri1", /*16*/"heatTimeFri2",
-  /*17*/"heatTimeSat1", /*18*/"heatTimeSat2",
-  /*19*/"heatTimeSun1", /*20*/"heatTimeSun2",
-  /*21*/"heatingTimesActive",
-  /*22*/"setBackTemp",
-  /*23*/"convectionFan1Active",
-  /*24*/"convectionFan1Level",
-  /*25*/"convectionFan1Area",
-  /*26*/"convectionFan2Active",
-  /*27*/"convectionFan2Level",
-  /*28*/"convectionFan2Area",
-  /*29*/"frostProtectionActive",
-  /*30*/"frostProtectionTemp",
-  /*31*/"roomTempOffset",
-  /*32*/"roomSensorPower",
+  /*0*/"revision",              // revision
+  /*1*/"onOff",                 // onOff
+  /*2*/"mode",                  // operatingMode
+  /*3*/"targetStage",           // heatingPower
+  /*4*/"roomTarget",            // targetTemperature (x10)
+  /*5*/"bakeTarget",            // bakeTemperature (DOMO BACK / 2.28 layout only)
+  /*6*/"ecoMode",               // ecoMode
+  /*7*/"heatTimeMon1",          // heatingTimeMon1
+  /*8*/"heatTimeMon2",          // heatingTimeMon2
+  /*9*/"heatTimeTue1",          // heatingTimeTue1
+  /*10*/"heatTimeTue2",         // heatingTimeTue2
+  /*11*/"heatTimeWed1",         // heatingTimeWed1
+  /*12*/"heatTimeWed2",         // heatingTimeWed2
+  /*13*/"heatTimeThu1",         // heatingTimeThu1
+  /*14*/"heatTimeThu2",         // heatingTimeThu2
+  /*15*/"heatTimeFri1",         // heatingTimeFri1
+  /*16*/"heatTimeFri2",         // heatingTimeFri2
+  /*17*/"heatTimeSat1",         // heatingTimeSat1
+  /*18*/"heatTimeSat2",         // heatingTimeSat2
+  /*19*/"heatTimeSun1",         // heatingTimeSun1
+  /*20*/"heatTimeSun2",         // heatingTimeSun2
+  /*21*/"heatingTimesActive",   // heatingTimesActiveForComfort
+  /*22*/"setBackTemp",          // setBackTemperature
+  /*23*/"convectionFan1Active", // convectionFan1Active
+  /*24*/"convectionFan1Level",  // convectionFan1Level
+  /*25*/"convectionFan1Area",   // convectionFan1Area
+  /*26*/"convectionFan2Active", // convectionFan2Active
+  /*27*/"convectionFan2Level",  // convectionFan2Level
+  /*28*/"convectionFan2Area",   // convectionFan2Area
+  /*29*/"frostProtectionActive",// frostProtectionActive
+  /*30*/"frostProtectionTemp",  // frostProtectionTemperature
+  /*31*/"roomTempOffset",       // temperatureOffset
+  /*32*/"roomSensorPower",      // RoomPowerRequest
+  /*33*/"debug0",               // debug0
+  /*34*/"debug1",               // debug1
+  /*35*/"debug2",               // debug2
+  /*36*/"debug3",               // debug3
+  /*37*/"debug4",               // debug4
 };
-static const int NUM_CONTROL_LABELS = 33;
+static const int NUM_CONTROL_LABELS = 38;
 
 // index = sensor position in the DOMO / INDUO II table (88 records; the INDUO 2.26/2.27 table is the same without
 // record 2, see v1ToDomoIndex). The comment is the official name of the record: the official key does not hold the

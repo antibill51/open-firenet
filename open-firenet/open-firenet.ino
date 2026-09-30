@@ -82,7 +82,7 @@ static const Reading CONTROLS[] = {         // positions 0..28
   {"targetStage",          "Etage cible", 1},
   {"roomTarget",           "Consigne ambiance", 10}, // dixiemes de degre
   {"bakeTarget",           "Consigne four", 1},
-  {"reserved6",            "Reserve 6", 1},
+  {"ecoMode",              "Mode eco", 1},
   {"heatTimeMon1",         "Chauffe Lun 1", 1},
   {"heatTimeMon2",         "Chauffe Lun 2", 1},
   {"heatTimeTue1",         "Chauffe Mar 1", 1},
@@ -398,6 +398,11 @@ static String jsonState() {
   auto itTO = m.controls.find("roomTempOffset"); if (itTO != m.controls.end()) tempOffset = itTO->second;
   else if (m.controls_pos.size() > 31) tempOffset = m.controls_pos[31];
   float tempOffsetF = tempOffset / 10.0f;
+  // Eco mode (control ecoMode, DOMO record 6) and whether the stove allows it (sensor ecoModePossible).
+  long ecoMode = 0, ecoPossible = 0;
+  auto itEco = m.controls.find("ecoMode"); if (itEco != m.controls.end()) ecoMode = itEco->second;
+  else if (m.controls_pos.size() > 6) ecoMode = m.controls_pos[6];
+  auto itEcoP = m.sensors.find("ecoModePossible"); if (itEcoP != m.sensors.end()) ecoPossible = itEcoP->second;
 
   float rTempF = rTemp / 10.0f;
   float rTargetF = curRoom / 10.0f;
@@ -470,7 +475,9 @@ static String jsonState() {
       "\"frost_protection_active\":%s,"
       "\"frost_protection_temperature\":%.1f,"
       "\"bake_target_temperature\":%ld,"
-      "\"room_temperature_offset\":%.1f"
+      "\"room_temperature_offset\":%.1f,"
+      "\"eco_mode\":%s,"
+      "\"eco_mode_possible\":%s"
     "},",
     (WiFi.getMode()==WIFI_AP?WiFi.softAPIP():WiFi.localIP()).toString().c_str(),
     WiFi.macAddress().c_str(),
@@ -493,7 +500,8 @@ static String jsonState() {
     (fan2On == 1) ? "true" : "false", fan2Level, fan2Area,
     (frostActive == 1) ? "true" : "false", frostTempF,
     bakeTarget,
-    tempOffsetF
+    tempOffsetF,
+    ecoMode ? "true" : "false", ecoPossible ? "true" : "false"
   );
 
   String j = String(buf);
@@ -994,6 +1002,10 @@ static void handleApiControls() {
     else if (m.controls_pos.size() > 31) curTempOffset = m.controls_pos[31];
     float curTempOffsetF = curTempOffset / 10.0f;
 
+    long curEco = 0;
+    auto itEco = m.controls.find("ecoMode"); if (itEco != m.controls.end()) curEco = itEco->second;
+    else if (m.controls_pos.size() > 6) curEco = m.controls_pos[6];
+
     const char* modeName = (curMode == 0) ? "manual" : ((curMode == 1) ? "auto" : "comfort");
     float rTargetF = curRoom / 10.0f;
     float sbTempF = curSetBackTemp / 10.0f;
@@ -1028,7 +1040,9 @@ static void handleApiControls() {
       "\"bakeTarget\":%ld,"
       "\"bake_target_temperature\":%ld,"
       "\"roomTempOffset\":%ld,"
-      "\"room_temperature_offset\":%.1f"
+      "\"room_temperature_offset\":%.1f,"
+      "\"ecoMode\":%ld,"
+      "\"eco_mode\":%s"
       "}",
       (curOn == 1) ? "true" : "false",
       modeName, curMode, rTargetF, curStage,
@@ -1040,7 +1054,8 @@ static void handleApiControls() {
       curFrostActive, (curFrostActive == 1) ? "true" : "false",
       curFrostTemp, frostTempF,
       curBakeTarget, curBakeTarget,
-      curTempOffset, curTempOffsetF
+      curTempOffset, curTempOffsetF,
+      curEco, curEco ? "true" : "false"
     );
     web.send(200, "application/json", buf);
     return;
@@ -1055,6 +1070,7 @@ static void handleApiControls() {
   long newHeatingTimesActive = -1, newSetBackTemp = -1;
   long newFrostActive = -1, newFrostTemp = -1;
   long newTempOffset = -999;
+  long newEcoMode = -1;
   long newHeatTimes[14];
   for (int i = 0; i < 14; i++) newHeatTimes[i] = -1;
 
@@ -1128,6 +1144,8 @@ static void handleApiControls() {
     else newTempOffset = (long)round(fVal);
   }
 
+  if (findJsonBool(raw, "ecoMode", bVal) || findJsonBool(raw, "eco_mode", bVal)) newEcoMode = bVal ? 1 : 0;
+  else if (findJsonFloat(raw, "ecoMode", fVal) || findJsonFloat(raw, "eco_mode", fVal)) newEcoMode = (fVal != 0.0f) ? 1 : 0;
   if (findJsonBool(raw, "heatingTimesActive", bVal) || findJsonBool(raw, "heating_times_active", bVal) || findJsonBool(raw, "scheduleActive", bVal)) {
     newHeatingTimesActive = bVal ? 1 : 0;
   }
@@ -1389,6 +1407,7 @@ static void handleApiControls() {
   if (newFrostTemp >= 0) full.push_back({"frostProtectionTemp", newFrostTemp});
   if (newBakeTarget >= 0) full.push_back({"bakeTarget", finalBakeTarget});
   if (newTempOffset != -999) full.push_back({"roomTempOffset", finalTempOffset});
+  if (newEcoMode >= 0) full.push_back({"ecoMode", newEcoMode});
   for (int i = 0; i < 14; i++) {
     if (newHeatTimes[i] >= 0) full.push_back({firenet::ctrlName(7 + i), newHeatTimes[i]});
   }

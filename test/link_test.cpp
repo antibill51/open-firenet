@@ -403,18 +403,18 @@ int main(){
     l5.pollControls(); drain5();
     {
       CH("V1 pollControls registers the control names (GET_CONTROLS=0; ...)",
-         w5.find("GET_CONTROLS=0; revision=0; onOff=0; mode=0; targetStage=0; roomTarget=0; reserved6=0; heatTimeMon1=0; ") != std::string::npos);
+         w5.find("GET_CONTROLS=0; revision=0; onOff=0; mode=0; targetStage=0; roomTarget=0; ecoMode=0; heatTimeMon1=0; ") != std::string::npos);
       CH("V1 controls registration skips bakeTarget (no such record on the 2.27)", w5.find("bakeTarget") == std::string::npos);
-      CH("V1 controls registration: frost / offset at V1 records 29..31, then unlabelled DOMO 33..37",
-         w5.find("frostProtectionTemp=0; roomTempOffset=0; roomSensorPower=0; c33=0; c34=0; c35=0; c36=0; c37=0; GET_REVISION=") != std::string::npos);
+      CH("V1 controls registration: frost / offset at V1 records 29..31, then debug0..debug4 (DOMO 33..37)",
+         w5.find("frostProtectionTemp=0; roomTempOffset=0; roomSensorPower=0; debug0=0; debug1=0; debug2=0; debug3=0; debug4=0; GET_REVISION=") != std::string::npos);
       CH("V1 controls registration is followed by GET_REVISION then TRANSFER_COMPLETED",
-         w5.find("c37=0; GET_REVISION=") != std::string::npos && w5.find("TRANSFER_COMPLETED", w5.find("c37=0; ")) != std::string::npos);
+         w5.find("debug4=0; GET_REVISION=") != std::string::npos && w5.find("TRANSFER_COMPLETED", w5.find("debug4=0; ")) != std::string::npos);
     }
     w5.clear();
     l5.pollControls(); drain5();
     CH("V1 pollControls sends nothing once registered", w5.empty());
     {
-      std::string post = "POST_CONTROLS=0; revision=0; onOff=1; mode=2; targetStage=70; roomTarget=210; reserved6=0; heatTimeMon1=360; "
+      std::string post = "POST_CONTROLS=0; revision=0; onOff=1; mode=2; targetStage=70; roomTarget=210; ecoMode=0; heatTimeMon1=360; "
                          "heatTimeMon2=1080; heatingTimesActive=1; setBackTemp=180; frostProtectionActive=1; frostProtectionTemp=50; roomTempOffset=-2; ";
       for(char c:post) l5.onByte(c);
       c5+=60; l5.poll();
@@ -660,6 +660,12 @@ int main(){
     domo.applyControls({{"onOff",1},{"frostProtectionActive",1}});
     for(int i=0;i<16 && !domo.txIdle();i++){ cd+=DongleLink::TX_GAP_MS; domo.poll(); }
     CH("DOMO/2.29 applyControls still sends the extended frame", wd.find("bakeTarget=") != std::string::npos && wd.find("frostProtectionActive=1; ") != std::string::npos);
+    CH("DOMO/2.29 extended frame carries ecoMode as record 6 (official name, was reserved6)", wd.find("bakeTarget=180; ecoMode=0; heatTimeMon1=") != std::string::npos);
+    wd.clear();
+    domo.applyControls({{"ecoMode",1}});
+    for(int i=0;i<16 && !domo.txIdle();i++){ cd+=DongleLink::TX_GAP_MS; domo.poll(); }
+    CH("eco mode command is sent in the extended frame", wd.find("ecoMode=1; ") != std::string::npos);
+    CH("eco mode kept in the model", domo.model().controls.at("ecoMode") == 1 && domo.model().controls_pos.size() > 6 && domo.model().controls_pos[6] == 1);
   }
 
   std::cout << ok << " ok, " << ko << " failures\n";

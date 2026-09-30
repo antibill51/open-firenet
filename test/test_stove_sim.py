@@ -353,7 +353,7 @@ def run_induo_simulation_tests():
         tx_ctl += bridge.tick(600)[0]
     ctl_req = next((t for t in tx_ctl if t.startswith("GET_CONTROLS=0; ")), None)
     assert_test("Le dongle enregistre les noms de contrôles (GET_CONTROLS=0; revision=0; onOff=0; ...)",
-                bool(ctl_req) and ctl_req.startswith("GET_CONTROLS=0; revision=0; onOff=0; mode=0; targetStage=0; roomTarget=0; reserved6=0; "))
+                bool(ctl_req) and ctl_req.startswith("GET_CONTROLS=0; revision=0; onOff=0; mode=0; targetStage=0; roomTarget=0; ecoMode=0; "))
     assert_test("L'enregistrement saute bakeTarget (pas de record 5 sur le 2.27)", bool(ctl_req) and "bakeTarget" not in ctl_req)
     ctl_replies = []
     for t in tx_ctl:

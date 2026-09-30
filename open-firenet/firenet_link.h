@@ -389,6 +389,12 @@ public:
     bool hasScheduleCmd = false;
     bool hasFrostCmd = false;
     bool hasBakeCmd = false;
+    // Eco mode (official control ecoMode, record 6 of the DOMO table): kept from the stove unless commanded.
+    long ecoMode = 0;
+    auto itEco = model_.controls.find("ecoMode");
+    if (itEco != model_.controls.end()) ecoMode = itEco->second;
+    else if (model_.controls_pos.size() > 6) ecoMode = model_.controls_pos[6];
+    bool hasEcoCmd = false;
     bool hasTempOffsetCmd = false;
 
     // Mettre à jour avec les valeurs passées dans `full`
@@ -443,6 +449,10 @@ public:
         if (ft > 100) ft = 100;
         frostTemp = ft;
         hasFrostCmd = true;
+      }
+      else if (kv.first == "ecoMode" || kv.first == "eco_mode") {
+        ecoMode = kv.second ? 1 : 0;
+        hasEcoCmd = true;
       }
       else if (kv.first == "bakeTarget" || kv.first == "bake_target_temperature" || kv.first == "bake_target" || kv.first == "bakeTemp" || kv.first == "bake") {
         bakeTarget = kv.second;
@@ -524,6 +534,7 @@ public:
     model_.controls["frostProtectionActive"] = frostActive;
     model_.controls["frostProtectionTemp"] = frostTemp;
     model_.controls["bakeTarget"] = bakeTarget;
+    model_.controls["ecoMode"] = ecoMode;
     model_.controls["roomTempOffset"] = tempOffset;
 
     if (model_.controls_pos.size() < 5) model_.controls_pos.resize(5, 0);
@@ -533,7 +544,7 @@ public:
     model_.controls_pos[3] = targetStage;
     model_.controls_pos[4] = roomTarget;
 
-    bool sendExtended = (model_.controls_pos.size() >= 29 || hasMultiAirCmd || hasScheduleCmd || hasFrostCmd || hasBakeCmd || hasTempOffsetCmd);
+    bool sendExtended = (model_.controls_pos.size() >= 29 || hasMultiAirCmd || hasScheduleCmd || hasFrostCmd || hasBakeCmd || hasTempOffsetCmd || hasEcoCmd);
     // INDUO 2.26/2.27: the stove stores the k-th pair of GET_CONTROLS=1 in its record k, and its table has no
     // bakeTarget record (V1 record p = DOMO control p for p < 5, p + 1 after, see v1ToDomoCtrlIndex): the extended
     // frame below, in DOMO order, would shift every value from record 5 on (heating times, frost, offset...). Only
@@ -545,6 +556,7 @@ public:
       size_t reqSize = sendOffset ? 32 : (sendFrost ? 31 : 29);
       if (model_.controls_pos.size() < reqSize) model_.controls_pos.resize(reqSize, 0);
       model_.controls_pos[5] = bakeTarget;
+      model_.controls_pos[6] = ecoMode;
       model_.controls_pos[23] = fan1On;
       model_.controls_pos[24] = fan1Level;
       model_.controls_pos[25] = fan1Area;
@@ -566,9 +578,8 @@ public:
       b += "targetStage=" + std::to_string(targetStage) + "; ";
       b += "roomTarget=" + std::to_string(roomTarget) + "; ";
 
-      long reserved6 = (model_.controls_pos.size() > 6) ? model_.controls_pos[6] : 0;
       b += "bakeTarget=" + std::to_string(bakeTarget) + "; ";
-      b += "reserved6=" + std::to_string(reserved6) + "; ";
+      b += "ecoMode=" + std::to_string(ecoMode) + "; ";
 
       for (int i = 7; i <= 20; i++) {
         long ht = (model_.controls_pos.size() > (size_t)i) ? model_.controls_pos[i] : 0;
