@@ -633,6 +633,35 @@ int main(){
     CH("a full POST_SENSORS with 7-digit values stays under 2048 bytes", v28post < 2048);
   }
 
+  // INDUO 2.26/2.27: the extended GET_CONTROLS=1 frame is in DOMO order (bakeTarget at 5), which would shift every
+  // record from 5 on for a stove whose table has no bakeTarget; only the five-field frame is sent there.
+  {
+    std::string w; uint32_t c=0;
+    DongleLink v1([&](const uint8_t*d,size_t n){ w.append((const char*)d,n); }, [&](){ return c; });
+    v1.debugSetStage(DongleLink::DETECT_V1);
+    v1.poll();
+    for (char ch : std::string("GET_WIFI_VERSION_FINISHED")) v1.onByte(ch);
+    c += 60; v1.poll();
+    for(int i=0;i<16 && !v1.txIdle();i++){ c+=DongleLink::TX_GAP_MS; v1.poll(); }
+    w.clear();
+    v1.applyControls({{"onOff",1},{"frostProtectionActive",1}});
+    for(int i=0;i<16 && !v1.txIdle();i++){ c+=DongleLink::TX_GAP_MS; v1.poll(); }
+    CH("V1 applyControls sends the five-field frame", w.find("GET_CONTROLS=1; revision=") != std::string::npos && w.find("onOff=1; ") != std::string::npos);
+    CH("V1 applyControls never sends the DOMO-ordered extended frame", w.find("bakeTarget=") == std::string::npos && w.find("frostProtectionActive=") == std::string::npos);
+
+    std::string wd; uint32_t cd=0;
+    DongleLink domo([&](const uint8_t*d,size_t n){ wd.append((const char*)d,n); }, [&](){ return cd; });
+    domo.debugSetStage(DongleLink::DETECT_V3);
+    domo.poll();
+    for (char ch : std::string("GET_CDCDEVICE_VERSION_FINISHED")) domo.onByte(ch);
+    cd += 60; domo.poll();
+    for(int i=0;i<16 && !domo.txIdle();i++){ cd+=DongleLink::TX_GAP_MS; domo.poll(); }
+    wd.clear();
+    domo.applyControls({{"onOff",1},{"frostProtectionActive",1}});
+    for(int i=0;i<16 && !domo.txIdle();i++){ cd+=DongleLink::TX_GAP_MS; domo.poll(); }
+    CH("DOMO/2.29 applyControls still sends the extended frame", wd.find("bakeTarget=") != std::string::npos && wd.find("frostProtectionActive=1; ") != std::string::npos);
+  }
+
   std::cout << ok << " ok, " << ko << " failures\n";
   return ko ? 1 : 0;
 }
