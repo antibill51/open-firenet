@@ -24,6 +24,7 @@
 #include "tusb.h"   // écriture CDC directe, sans la condition DTR d'Arduino
 #include "esp_wifi.h"  // connexion STA robuste (méthode open-firenet, coexistence USB)
 #include "firenet_link.h"
+#include "firenet_api.h"
 #include "web_ui.h"
 
 // Avec CDCOnBoot=default (désactivé), le core ne démarre pas l'USB de lui-même :
@@ -59,65 +60,27 @@ bool        writeEnabled = true;    // Open-Firenet : consignes actives directem
 // Sans nom, il n'émet que son jeu par défaut (1 capteur / 5 contrôles).
 // -> pour lire les positions hautes il FAUT enregistrer autant de noms. Le poêle
 // ignore le texte des noms, seule la position compte.
-struct Reading { const char* wire; const char* label; long scale; };
-static const Reading SENSORS[] = {          // PRIO1 f0..f12
-  {"f0",  "Temperature ambiante", 10},      // sRoomTemp_ACT ×10
-  {"f1",  "Temperature chambre combustion", 1}, // lFlameTemp_ACT
-  {"f2",  "Code erreur actif", 1},          // ulError_ACT
-  {"f3",  "Avertissement actif", 1},        // uiWarning_ACT
-  {"f4",  "Code service", 1},               // usService_ACT
-  {"f5",  "Moteur decharge (RPM)", 1},      // uiDischargeMotor_ACT
-  {"f6",  "Vis pellets (RPM)", 1},          // uiInsertionMotor_ACT
-  {"f7",  "Ventilateur combustion (RPM)", 1}, // uiIDFan_ACT
-  {"f8",  "Position registres air", 1},     // uiAirFlaps_ACT
-  {"f9",  "Heures pellets (min)", 1},       // ulRuntimePellets
-  {"f10", "Heures buches (min)", 1},        // ulRuntimeLogs
-  {"f11", "Consommation totale (kg)", 1},   // ulFeedRateTotal
-  {"f12", "Marche/Arret", 1},               // bOnOff
-};
-static const Reading CONTROLS[] = {         // positions 0..28
-  {"revision",             "Revision", 1},
-  {"onOff",                "Marche/Arret", 1},
-  {"mode",                 "Mode regulation", 1},
-  {"targetStage",          "Etage cible", 1},
-  {"roomTarget",           "Consigne ambiance", 10}, // dixiemes de degre
-  {"bakeTarget",           "Consigne four", 1},
-  {"ecoMode",              "Mode eco", 1},
-  {"heatTimeMon1",         "Chauffe Lun 1", 1},
-  {"heatTimeMon2",         "Chauffe Lun 2", 1},
-  {"heatTimeTue1",         "Chauffe Mar 1", 1},
-  {"heatTimeTue2",         "Chauffe Mar 2", 1},
-  {"heatTimeWed1",         "Chauffe Mer 1", 1},
-  {"heatTimeWed2",         "Chauffe Mer 2", 1},
-  {"heatTimeThu1",         "Chauffe Jeu 1", 1},
-  {"heatTimeThu2",         "Chauffe Jeu 2", 1},
-  {"heatTimeFri1",         "Chauffe Ven 1", 1},
-  {"heatTimeFri2",         "Chauffe Ven 2", 1},
-  {"heatTimeSat1",         "Chauffe Sam 1", 1},
-  {"heatTimeSat2",         "Chauffe Sam 2", 1},
-  {"heatTimeSun1",         "Chauffe Dim 1", 1},
-  {"heatTimeSun2",         "Chauffe Dim 2", 1},
-  {"heatingTimesActive",   "Chauffe auto active", 1},
-  {"setBackTemp",          "Temperature reduite", 10},
-  {"convectionFan1Active", "MultiAir 1 marche", 1},
-  {"convectionFan1Level",  "MultiAir 1 vitesse", 1},
-  {"convectionFan1Area",   "MultiAir 1 repartition", 1},
-  {"convectionFan2Active", "MultiAir 2 marche", 1},
-  {"convectionFan2Level",  "MultiAir 2 vitesse", 1},
-  {"convectionFan2Area",   "MultiAir 2 repartition", 1},
-  {"frostProtectionActive", "Protection hors-gel", 1},
-  {"frostProtectionTemp",   "Temperature hors-gel", 10},
-  {"roomTempOffset",        "Calibrage sonde ambiance", 10},
-};
-static const int N_SENS = sizeof(SENSORS)/sizeof(SENSORS[0]);
-static const int N_CTRL = sizeof(CONTROLS)/sizeof(CONTROLS[0]);
 static std::vector<std::string> SENSOR_NAMES;
 static std::vector<std::string> CONTROL_NAMES;
 static void buildNames() {
   // Registering more names has no benefit past 88: the stove's real internal
   // array caps out at 88 slots (confirmed live 2026-09-18, see PROTOCOL.md).
   for (int i = 0; i < 88; i++) SENSOR_NAMES.push_back(firenet::sensName(i));
-  for (int i = 0; i < N_CTRL; i++) CONTROL_NAMES.push_back(CONTROLS[i].wire);
+  // DOMO / 2.29 registration: control records 0..31 (up to roomTempOffset), as before.
+  for (int i = 0; i < 32; i++) CONTROL_NAMES.push_back(firenet::ctrlName(i));
+}
+
+// Current value of a sensor / control: by name (every record is named once registered), else by its position in the
+// DOMO-indexed vectors, else the given default.
+static long sensorValue(const firenet::StoveModel& m, const char* name, long def) {
+  auto it = m.sensors.find(name); if (it != m.sensors.end()) return it->second;
+  int i = firenet::sensIndexByName(name);
+  return (i >= 0 && (size_t)i < m.sensors_pos.size()) ? m.sensors_pos[i] : def;
+}
+static long controlValue(const firenet::StoveModel& m, const char* name, long def) {
+  auto it = m.controls.find(name); if (it != m.controls.end()) return it->second;
+  int i = firenet::ctrlIndexByName(name);
+  return (i >= 0 && (size_t)i < m.controls_pos.size()) ? m.controls_pos[i] : def;
 }
 
 // --------------------------------------------------------- liaison protocole
@@ -149,76 +112,6 @@ static void txToStove(const uint8_t* d, size_t n) {
   }
 }
 static uint32_t nowMs() { return millis(); }
-
-// ------------------------------------------------------------------- JSON helpers
-static bool findJsonBool(const String& str, const String& key, bool& out) {
-  int idx = str.indexOf("\"" + key + "\"");
-  if (idx < 0) idx = str.indexOf("'" + key + "'");
-  if (idx < 0) return false;
-  int colon = str.indexOf(':', idx);
-  if (colon < 0) return false;
-  int start = colon + 1;
-  while (start < str.length() && (str[start] == ' ' || str[start] == '\t')) start++;
-  if (str.substring(start, start + 4).equalsIgnoreCase("true") || str[start] == '1') {
-    out = true; return true;
-  }
-  if (str.substring(start, start + 5).equalsIgnoreCase("false") || str[start] == '0') {
-    out = false; return true;
-  }
-  return false;
-}
-
-static bool findJsonFloat(const String& str, const String& key, float& out) {
-  int idx = str.indexOf("\"" + key + "\"");
-  if (idx < 0) idx = str.indexOf("'" + key + "'");
-  if (idx < 0) idx = str.indexOf(key + "=");
-  if (idx < 0) return false;
-  int sep = str.indexOf(':', idx);
-  if (sep < 0 || (str.indexOf('=', idx) > 0 && str.indexOf('=', idx) < sep)) sep = str.indexOf('=', idx);
-  if (sep < 0) return false;
-  int start = sep + 1;
-  while (start < str.length() && (str[start] == ' ' || str[start] == '"' || str[start] == '\'')) start++;
-  int end = start;
-  while (end < str.length() && (isDigit(str[end]) || str[end] == '.' || str[end] == '-')) end++;
-  if (end > start) {
-    out = str.substring(start, end).toFloat();
-    return true;
-  }
-  return false;
-}
-
-static bool findJsonLong(const String& str, const String& key, long& out) {
-  int idx = str.indexOf("\"" + key + "\"");
-  if (idx < 0) idx = str.indexOf("'" + key + "'");
-  if (idx < 0) idx = str.indexOf(key + "=");
-  if (idx < 0) return false;
-  int sep = str.indexOf(':', idx);
-  if (sep < 0 || (str.indexOf('=', idx) > 0 && str.indexOf('=', idx) < sep)) sep = str.indexOf('=', idx);
-  if (sep < 0) return false;
-  int start = sep + 1;
-  while (start < str.length() && (str[start] == ' ' || str[start] == '"' || str[start] == '\'')) start++;
-  int end = start;
-  while (end < str.length() && (isDigit(str[end]) || str[end] == '-')) end++;
-  if (end > start) {
-    out = str.substring(start, end).toInt();
-    return true;
-  }
-  return false;
-}
-
-static bool findJsonString(const String& str, const String& key, String& out) {
-  int idx = str.indexOf("\"" + key + "\"");
-  if (idx < 0) idx = str.indexOf("'" + key + "'");
-  if (idx < 0) return false;
-  int colon = str.indexOf(':', idx);
-  if (colon < 0) return false;
-  int start = str.indexOf('"', colon);
-  if (start < 0) return false;
-  int end = str.indexOf('"', start + 1);
-  if (end < 0) return false;
-  out = str.substring(start + 1, end);
-  return true;
-}
 
 static const char* getStoveModelName(long modelId) {
   switch (modelId) {
@@ -257,65 +150,26 @@ static const char* getStoveModelName(long modelId) {
 static String jsonState() {
   const auto& m = g_link->model();
 
-  long rTemp = 0, fTemp = 0, bTemp = 0, mainSt = 1, sState = 0;
-  long pTotal = 0, pHours = 0, sCount = 700, idFan = 0, auger = 0;
-  long errMask = 0, errSub = 0;
-  long modelId = (m.generation == 2) ? 1 : 13;   // 1 = INDUO, 13 = DOMO
-  long appVer  = (m.generation == 2) ? 227 : 229;
-  long buildVer = (m.generation == 2) ? 44501 : 58512;
+  const bool v1 = (m.generation == 2);   // defaults below only matter before the first stove frame
+  long rTemp    = sensorValue(m, "roomTemp", 0);
+  long fTemp    = sensorValue(m, "flame", 0);
+  long bTemp    = sensorValue(m, "boardSensor", 0);
+  long mainSt   = sensorValue(m, "mainState", 1);
+  long sState   = sensorValue(m, "subState", 0);
+  long pTotal   = sensorValue(m, "pelletsTotal", 0);
+  long pHours   = sensorValue(m, "pelletHours", 0);
+  long sCount   = sensorValue(m, "serviceCountdown", 700);
+  long idFan    = sensorValue(m, "idFanMeas", 0);
+  long auger    = sensorValue(m, "augerSet", 0);
+  long errMask  = sensorValue(m, "errMask32", 0);
+  long errSub   = sensorValue(m, "errSub", 0);
+  long modelId  = sensorValue(m, "model", v1 ? 1 : 13);          // 1 = INDUO, 13 = DOMO
+  long appVer   = sensorValue(m, "appVerBoard", v1 ? 227 : 229);
+  long buildVer = sensorValue(m, "firmwareBuild", v1 ? 44501 : 58512);
+  long warnCode = sensorValue(m, "statusWarning", 0);
 
-  if (m.generation == 2) {
-    // Schéma positionnel V1 (INDUO V2.26 / V2.27, PRIO 1)
-    if (m.sensors_pos.size() > 0)  rTemp = m.sensors_pos[0];
-    if (m.sensors_pos.size() > 1)  fTemp = m.sensors_pos[1];
-    if (m.sensors_pos.size() > 2)  errMask = m.sensors_pos[2];
-    if (m.sensors_pos.size() > 3)  errSub = m.sensors_pos[3];
-    if (m.sensors_pos.size() > 4)  sCount = m.sensors_pos[4];
-    if (m.sensors_pos.size() > 6)  auger = m.sensors_pos[6];
-    if (m.sensors_pos.size() > 7)  idFan = m.sensors_pos[7];
-    if (m.sensors_pos.size() > 9)  pHours = m.sensors_pos[9];
-    if (m.sensors_pos.size() > 11) pTotal = m.sensors_pos[11];
-  } else {
-    // Schéma positionnel V3 (DOMO V2.29+)
-    if (m.sensors_pos.size() > 0)  rTemp = m.sensors_pos[0];
-    if (m.sensors_pos.size() > 1)  fTemp = m.sensors_pos[1];
-    if (m.sensors_pos.size() > 3)  errMask = m.sensors_pos[3];
-    if (m.sensors_pos.size() > 4)  errSub = m.sensors_pos[4];
-    if (m.sensors_pos.size() > 7)  auger = m.sensors_pos[7];
-    if (m.sensors_pos.size() > 9)  idFan = m.sensors_pos[9];
-    if (m.sensors_pos.size() > 27) bTemp = m.sensors_pos[27];
-    if (m.sensors_pos.size() > 31) mainSt = m.sensors_pos[31];
-    if (m.sensors_pos.size() > 32) sState = m.sensors_pos[32];
-    if (m.sensors_pos.size() > 36) modelId = m.sensors_pos[36];
-    if (m.sensors_pos.size() > 38) appVer = m.sensors_pos[38];
-    if (m.sensors_pos.size() > 44) buildVer = m.sensors_pos[44];
-    if (m.sensors_pos.size() > 47) pHours = m.sensors_pos[47];
-    if (m.sensors_pos.size() > 49) pTotal = m.sensors_pos[49];
-    if (m.sensors_pos.size() > 50) sCount = m.sensors_pos[50];
-  }
-
-  // Surcharges par clé nommée si présentes dans model_.sensors
-  auto itR = m.sensors.find("roomTemp"); if (itR != m.sensors.end()) rTemp = itR->second;
-  auto itF = m.sensors.find("flame"); if (itF != m.sensors.end()) fTemp = itF->second;
-  auto itB = m.sensors.find("boardSensor"); if (itB != m.sensors.end()) bTemp = itB->second;
-  auto itMS = m.sensors.find("mainState"); if (itMS != m.sensors.end()) mainSt = itMS->second;
-  auto itSS = m.sensors.find("subState"); if (itSS != m.sensors.end()) sState = itSS->second;
-  auto itPT = m.sensors.find("pelletsTotal"); if (itPT != m.sensors.end()) pTotal = itPT->second;
-  auto itPH = m.sensors.find("pelletHours"); if (itPH != m.sensors.end()) pHours = itPH->second;
-  auto itSC = m.sensors.find("serviceCountdown"); if (itSC != m.sensors.end()) sCount = itSC->second;
-  auto itFan = m.sensors.find("idFanMeas"); if (itFan != m.sensors.end()) idFan = itFan->second;
-  auto itAug = m.sensors.find("augerSet"); if (itAug != m.sensors.end()) auger = itAug->second;
-  auto itEM = m.sensors.find("errMask32"); if (itEM != m.sensors.end()) errMask = itEM->second;
-  auto itES = m.sensors.find("errSub"); if (itES != m.sensors.end()) errSub = itES->second;
-  auto itMod = m.sensors.find("model"); if (itMod != m.sensors.end()) modelId = itMod->second;
-  auto itAV = m.sensors.find("appVerBoard"); if (itAV != m.sensors.end()) appVer = itAV->second;
-  auto itBV = m.sensors.find("firmwareBuild"); if (itBV != m.sensors.end()) buildVer = itBV->second;
-
-  // Warning bitmask and air flaps (official record names statusWarning / outputAirFlaps / outputAirFlapsTargetPosition).
   // Air flap values are tenths of a percent (the Rika cloud integrations divide them by 10). A missing record, e.g. on a
   // stove whose names are not registered yet, is published as null.
-  long warnCode = 0;
-  auto itW = m.sensors.find("statusWarning"); if (itW != m.sensors.end()) warnCode = itW->second;
   char airFlapsS[16] = "null", airFlapsTgtS[16] = "null";
   auto itAF = m.sensors.find("airFlaps");
   if (itAF != m.sensors.end()) snprintf(airFlapsS, sizeof airFlapsS, "%.1f", itAF->second / 10.0f);
@@ -327,35 +181,16 @@ static String jsonState() {
 
   const char* modelName = getStoveModelName(modelId);
 
-  long curOn = 0, curMode = 2, curStage = 70, curRoom = 200;
-  if (m.generation == 2 && m.sensors_pos.size() > 12) curOn = m.sensors_pos[12];
-  auto itOn = m.controls.find("onOff"); if (itOn != m.controls.end()) curOn = itOn->second;
-  else if (m.controls_pos.size() >= 5) curOn = m.controls_pos[1];
-
-  auto itMode = m.controls.find("mode"); if (itMode != m.controls.end()) curMode = itMode->second;
-  else if (m.controls_pos.size() >= 5) curMode = m.controls_pos[2];
-
-  auto itStage = m.controls.find("targetStage"); if (itStage != m.controls.end()) curStage = itStage->second;
-  else if (m.controls_pos.size() >= 5) curStage = m.controls_pos[3];
-
-  auto itRoom = m.controls.find("roomTarget"); if (itRoom != m.controls.end()) curRoom = itRoom->second;
-  else if (m.controls_pos.size() >= 5) curRoom = m.controls_pos[4];
-
-  long fan1On = 0, fan1Level = 0, fan1Area = 0;
-  long fan2On = 0, fan2Level = 0, fan2Area = 0;
-  auto itF1O = m.controls.find("convectionFan1Active"); if (itF1O != m.controls.end()) fan1On = itF1O->second;
-  else if (m.controls_pos.size() > 23) fan1On = m.controls_pos[23];
-  auto itF1L = m.controls.find("convectionFan1Level"); if (itF1L != m.controls.end()) fan1Level = itF1L->second;
-  else if (m.controls_pos.size() > 24) fan1Level = m.controls_pos[24];
-  auto itF1A = m.controls.find("convectionFan1Area"); if (itF1A != m.controls.end()) fan1Area = itF1A->second;
-  else if (m.controls_pos.size() > 25) fan1Area = m.controls_pos[25];
-
-  auto itF2O = m.controls.find("convectionFan2Active"); if (itF2O != m.controls.end()) fan2On = itF2O->second;
-  else if (m.controls_pos.size() > 26) fan2On = m.controls_pos[26];
-  auto itF2L = m.controls.find("convectionFan2Level"); if (itF2L != m.controls.end()) fan2Level = itF2L->second;
-  else if (m.controls_pos.size() > 27) fan2Level = m.controls_pos[27];
-  auto itF2A = m.controls.find("convectionFan2Area"); if (itF2A != m.controls.end()) fan2Area = itF2A->second;
-  else if (m.controls_pos.size() > 28) fan2Area = m.controls_pos[28];
+  long curOn     = controlValue(m, "onOff", 0);
+  long curMode   = controlValue(m, "mode", 2);
+  long curStage  = controlValue(m, "targetStage", 70);
+  long curRoom   = controlValue(m, "roomTarget", 200);
+  long fan1On    = controlValue(m, "convectionFan1Active", 0);
+  long fan1Level = controlValue(m, "convectionFan1Level", 0);
+  long fan1Area  = controlValue(m, "convectionFan1Area", 0);
+  long fan2On    = controlValue(m, "convectionFan2Active", 0);
+  long fan2Level = controlValue(m, "convectionFan2Level", 0);
+  long fan2Area  = controlValue(m, "convectionFan2Area", 0);
 
   const char* stName = "unknown";
   const char* stLabel = "Unknown";
@@ -378,31 +213,16 @@ static String jsonState() {
     case 2: modeName = "comfort"; break;
   }
 
-  long htActive = 0, sbTemp = 160;
-  auto itHTA = m.controls.find("heatingTimesActive"); if (itHTA != m.controls.end()) htActive = itHTA->second;
-  else if (m.controls_pos.size() > 21) htActive = m.controls_pos[21];
-  auto itSBT = m.controls.find("setBackTemp"); if (itSBT != m.controls.end()) sbTemp = itSBT->second;
-  else if (m.controls_pos.size() > 22) sbTemp = m.controls_pos[22];
-
-  long frostActive = 0, frostTemp = 50;
-  auto itFA = m.controls.find("frostProtectionActive"); if (itFA != m.controls.end()) frostActive = itFA->second;
-  else if (m.controls_pos.size() > 29) frostActive = m.controls_pos[29];
-  auto itFT = m.controls.find("frostProtectionTemp"); if (itFT != m.controls.end()) frostTemp = itFT->second;
-  else if (m.controls_pos.size() > 30 && m.controls_pos[30] > 0) frostTemp = m.controls_pos[30];
-
-  long bakeTarget = 180;
-  auto itBT = m.controls.find("bakeTarget"); if (itBT != m.controls.end()) bakeTarget = itBT->second;
-  else if (m.controls_pos.size() > 5 && m.controls_pos[5] > 0) bakeTarget = m.controls_pos[5];
-
-  long tempOffset = 0;
-  auto itTO = m.controls.find("roomTempOffset"); if (itTO != m.controls.end()) tempOffset = itTO->second;
-  else if (m.controls_pos.size() > 31) tempOffset = m.controls_pos[31];
+  long htActive    = controlValue(m, "heatingTimesActive", 0);
+  long sbTemp      = controlValue(m, "setBackTemp", 160);
+  long frostActive = controlValue(m, "frostProtectionActive", 0);
+  long frostTemp   = controlValue(m, "frostProtectionTemp", 50);  if (frostTemp <= 0) frostTemp = 50;
+  long bakeTarget  = controlValue(m, "bakeTarget", 180);          if (bakeTarget <= 0) bakeTarget = 180;
+  long tempOffset  = controlValue(m, "roomTempOffset", 0);
   float tempOffsetF = tempOffset / 10.0f;
   // Eco mode (control ecoMode, DOMO record 6) and whether the stove allows it (sensor ecoModePossible).
-  long ecoMode = 0, ecoPossible = 0;
-  auto itEco = m.controls.find("ecoMode"); if (itEco != m.controls.end()) ecoMode = itEco->second;
-  else if (m.controls_pos.size() > 6) ecoMode = m.controls_pos[6];
-  auto itEcoP = m.sensors.find("ecoModePossible"); if (itEcoP != m.sensors.end()) ecoPossible = itEcoP->second;
+  long ecoMode     = controlValue(m, "ecoMode", 0);
+  long ecoPossible = sensorValue(m, "ecoModePossible", 0);
 
   float rTempF = rTemp / 10.0f;
   float rTargetF = curRoom / 10.0f;
@@ -575,8 +395,11 @@ static void handleTxGap() {
   if (web.method() == HTTP_OPTIONS) { web.send(204); return; }
   if (web.method() == HTTP_POST) {
     long ms = 0;
-    String raw = web.hasArg("plain") ? web.arg("plain") : "";
-    if (findJsonLong(raw, "ms", ms) || (web.hasArg("ms") && (ms = web.arg("ms").toInt()) > 0)) {
+    std::vector<std::pair<std::string, std::string>> kv;
+    firenet::jsonPairs(web.hasArg("plain") ? web.arg("plain").c_str() : "", kv);
+    for (const auto& p : kv) if (p.first == "ms") ms = atol(p.second.c_str());
+    if (ms <= 0 && web.hasArg("ms")) ms = web.arg("ms").toInt();
+    if (ms > 0) {
       g_link->setTxGapMs((uint32_t)(ms < 0 ? 0 : ms));
       prefs.begin("firenet", false);
       prefs.putUInt("txgap", g_link->txGapMs());
@@ -841,506 +664,92 @@ static void sendCors() {
 static void handleApiControls() {
   sendCors();
   if (web.method() == HTTP_OPTIONS) { web.send(204); return; }
+  const auto& m = g_link->model();
 
   if (web.method() == HTTP_GET) {
-    const auto& m = g_link->model();
-    long curOn = 0, curMode = 2, curStage = 70, curRoom = 200;
-    auto itOn = m.controls.find("onOff"); if (itOn != m.controls.end()) curOn = itOn->second;
-    else if (m.controls_pos.size() > 1) curOn = m.controls_pos[1];
-    auto itMode = m.controls.find("mode"); if (itMode != m.controls.end()) curMode = itMode->second;
-    else if (m.controls_pos.size() > 2) curMode = m.controls_pos[2];
-    auto itStage = m.controls.find("targetStage"); if (itStage != m.controls.end()) curStage = itStage->second;
-    else if (m.controls_pos.size() > 3) curStage = m.controls_pos[3];
-    auto itRoom = m.controls.find("roomTarget"); if (itRoom != m.controls.end()) curRoom = itRoom->second;
-    else if (m.controls_pos.size() > 4) curRoom = m.controls_pos[4];
-
-    long fan1On = 0, fan1Level = 0, fan1Area = 0;
-    long fan2On = 0, fan2Level = 0, fan2Area = 0;
-    auto itF1O = m.controls.find("convectionFan1Active"); if (itF1O != m.controls.end()) fan1On = itF1O->second;
-    else if (m.controls_pos.size() > 23) fan1On = m.controls_pos[23];
-    auto itF1L = m.controls.find("convectionFan1Level"); if (itF1L != m.controls.end()) fan1Level = itF1L->second;
-    else if (m.controls_pos.size() > 24) fan1Level = m.controls_pos[24];
-    auto itF1A = m.controls.find("convectionFan1Area"); if (itF1A != m.controls.end()) fan1Area = itF1A->second;
-    else if (m.controls_pos.size() > 25) fan1Area = m.controls_pos[25];
-
-    auto itF2O = m.controls.find("convectionFan2Active"); if (itF2O != m.controls.end()) fan2On = itF2O->second;
-    else if (m.controls_pos.size() > 26) fan2On = m.controls_pos[26];
-    auto itF2L = m.controls.find("convectionFan2Level"); if (itF2L != m.controls.end()) fan2Level = itF2L->second;
-    else if (m.controls_pos.size() > 27) fan2Level = m.controls_pos[27];
-    auto itF2A = m.controls.find("convectionFan2Area"); if (itF2A != m.controls.end()) fan2Area = itF2A->second;
-    else if (m.controls_pos.size() > 28) fan2Area = m.controls_pos[28];
-
-    long curHeatingTimesActive = 0, curSetBackTemp = 160;
-    auto itHTA = m.controls.find("heatingTimesActive"); if (itHTA != m.controls.end()) curHeatingTimesActive = itHTA->second;
-    else if (m.controls_pos.size() > 21) curHeatingTimesActive = m.controls_pos[21];
-    auto itSBT = m.controls.find("setBackTemp"); if (itSBT != m.controls.end()) curSetBackTemp = itSBT->second;
-    else if (m.controls_pos.size() > 22) curSetBackTemp = m.controls_pos[22];
-
-    long curFrostActive = 0, curFrostTemp = 50;
-    auto itFA = m.controls.find("frostProtectionActive"); if (itFA != m.controls.end()) curFrostActive = itFA->second;
-    else if (m.controls_pos.size() > 29) curFrostActive = m.controls_pos[29];
-    auto itFT = m.controls.find("frostProtectionTemp"); if (itFT != m.controls.end()) curFrostTemp = itFT->second;
-    else if (m.controls_pos.size() > 30 && m.controls_pos[30] > 0) curFrostTemp = m.controls_pos[30];
-
-    long curBakeTarget = 180;
-    auto itBT = m.controls.find("bakeTarget"); if (itBT != m.controls.end()) curBakeTarget = itBT->second;
-    else if (m.controls_pos.size() > 5 && m.controls_pos[5] > 0) curBakeTarget = m.controls_pos[5];
-
-    long curTempOffset = 0;
-    auto itTO = m.controls.find("roomTempOffset"); if (itTO != m.controls.end()) curTempOffset = itTO->second;
-    else if (m.controls_pos.size() > 31) curTempOffset = m.controls_pos[31];
-    float curTempOffsetF = curTempOffset / 10.0f;
-
-    long curEco = 0;
-    auto itEco = m.controls.find("ecoMode"); if (itEco != m.controls.end()) curEco = itEco->second;
-    else if (m.controls_pos.size() > 6) curEco = m.controls_pos[6];
-
+    long curOn = controlValue(m, "onOff", 0), curMode = controlValue(m, "mode", 2);
+    long curStage = controlValue(m, "targetStage", 70), curRoom = controlValue(m, "roomTarget", 200);
+    long htActive = controlValue(m, "heatingTimesActive", 0), sbTemp = controlValue(m, "setBackTemp", 160);
+    long frostActive = controlValue(m, "frostProtectionActive", 0);
+    long frostTemp = controlValue(m, "frostProtectionTemp", 50);  if (frostTemp <= 0) frostTemp = 50;
+    long bakeTarget = controlValue(m, "bakeTarget", 180);         if (bakeTarget <= 0) bakeTarget = 180;
+    long tempOffset = controlValue(m, "roomTempOffset", 0), eco = controlValue(m, "ecoMode", 0);
     const char* modeName = (curMode == 0) ? "manual" : ((curMode == 1) ? "auto" : "comfort");
-    float rTargetF = curRoom / 10.0f;
-    float sbTempF = curSetBackTemp / 10.0f;
-    float frostTempF = curFrostTemp / 10.0f;
-
     char buf[1024];
     snprintf(buf, sizeof(buf),
-      "{"
-      "\"on\":%s,"
-      "\"mode\":\"%s\","
-      "\"mode_code\":%ld,"
-      "\"target_temperature\":%.1f,"
-      "\"power_percent\":%ld,"
-      "\"onOff\":%ld,"
-      "\"operatingMode\":%ld,"
-      "\"heatingPower\":%ld,"
-      "\"tempRoomTarget\":%ld,"
-      "\"heatingTimesActive\":%ld,"
-      "\"heating_times_active\":%s,"
-      "\"setBackTemp\":%ld,"
-      "\"setback_temperature\":%.1f,"
-      "\"convectionFan1Active\":%ld,"
-      "\"convectionFan1Level\":%ld,"
-      "\"convectionFan1Area\":%ld,"
-      "\"convectionFan2Active\":%ld,"
-      "\"convectionFan2Level\":%ld,"
-      "\"convectionFan2Area\":%ld,"
-      "\"frostProtectionActive\":%ld,"
-      "\"frost_protection_active\":%s,"
-      "\"frostProtectionTemp\":%ld,"
-      "\"frost_protection_temperature\":%.1f,"
-      "\"bakeTarget\":%ld,"
-      "\"bake_target_temperature\":%ld,"
-      "\"roomTempOffset\":%ld,"
-      "\"room_temperature_offset\":%.1f,"
-      "\"ecoMode\":%ld,"
-      "\"eco_mode\":%s"
-      "}",
-      (curOn == 1) ? "true" : "false",
-      modeName, curMode, rTargetF, curStage,
+      "{\"on\":%s,\"mode\":\"%s\",\"mode_code\":%ld,\"target_temperature\":%.1f,\"power_percent\":%ld,"
+      "\"onOff\":%ld,\"operatingMode\":%ld,\"heatingPower\":%ld,\"tempRoomTarget\":%ld,"
+      "\"heatingTimesActive\":%ld,\"heating_times_active\":%s,\"setBackTemp\":%ld,\"setback_temperature\":%.1f,"
+      "\"convectionFan1Active\":%ld,\"convectionFan1Level\":%ld,\"convectionFan1Area\":%ld,"
+      "\"convectionFan2Active\":%ld,\"convectionFan2Level\":%ld,\"convectionFan2Area\":%ld,"
+      "\"frostProtectionActive\":%ld,\"frost_protection_active\":%s,\"frostProtectionTemp\":%ld,\"frost_protection_temperature\":%.1f,"
+      "\"bakeTarget\":%ld,\"bake_target_temperature\":%ld,\"roomTempOffset\":%ld,\"room_temperature_offset\":%.1f,"
+      "\"ecoMode\":%ld,\"eco_mode\":%s}",
+      curOn == 1 ? "true" : "false", modeName, curMode, curRoom / 10.0f, curStage,
       curOn, curMode, curStage, curRoom,
-      curHeatingTimesActive, (curHeatingTimesActive == 1) ? "true" : "false",
-      curSetBackTemp, sbTempF,
-      fan1On, fan1Level, fan1Area,
-      fan2On, fan2Level, fan2Area,
-      curFrostActive, (curFrostActive == 1) ? "true" : "false",
-      curFrostTemp, frostTempF,
-      curBakeTarget, curBakeTarget,
-      curTempOffset, curTempOffsetF,
-      curEco, curEco ? "true" : "false"
-    );
+      htActive, htActive == 1 ? "true" : "false", sbTemp, sbTemp / 10.0f,
+      controlValue(m, "convectionFan1Active", 0), controlValue(m, "convectionFan1Level", 0), controlValue(m, "convectionFan1Area", 0),
+      controlValue(m, "convectionFan2Active", 0), controlValue(m, "convectionFan2Level", 0), controlValue(m, "convectionFan2Area", 0),
+      frostActive, frostActive == 1 ? "true" : "false", frostTemp, frostTemp / 10.0f,
+      bakeTarget, bakeTarget, tempOffset, tempOffset / 10.0f,
+      eco, eco ? "true" : "false");
     web.send(200, "application/json", buf);
     return;
   }
 
-  // POST / PUT : modification de consigne
-  String raw = web.hasArg("plain") ? web.arg("plain") : (web.hasArg("cmd") ? web.arg("cmd") : "");
-  long newOn = -1, newMode = -1, newStage = -1, newRoom = -1;
-  long newFan1On = -1, newFan1Level = -1, newFan1Area = -999;
-  long newFan2On = -1, newFan2Level = -1, newFan2Area = -999;
-  long newBakeTarget = -1;
-  long newHeatingTimesActive = -1, newSetBackTemp = -1;
-  long newFrostActive = -1, newFrostTemp = -1;
-  long newTempOffset = -999;
-  long newEcoMode = -1;
-  long newHeatTimes[14];
-  for (int i = 0; i < 14; i++) newHeatTimes[i] = -1;
+  // POST / PUT: every accepted form (JSON body, "k=v;" text, form or query arguments, name/value pair) is reduced to
+  // name/value pairs and parsed by the same table (firenet_api.h). Later forms override earlier ones.
+  std::string body = (web.hasArg("plain") ? web.arg("plain") : (web.hasArg("cmd") ? web.arg("cmd") : String())).c_str();
+  std::vector<std::pair<std::string, std::string>> pairs;
+  if (body.find('{') != std::string::npos) firenet::jsonPairs(body, pairs); else firenet::textPairs(body, pairs);
+  for (int i = 0; i < web.args(); i++) {
+    String n = web.argName(i);
+    if (n == "plain" || n == "cmd" || n == "name" || n == "value") continue;
+    pairs.push_back({n.c_str(), web.arg(i).c_str()});
+  }
+  if (web.hasArg("name") && web.hasArg("value")) pairs.push_back({web.arg("name").c_str(), web.arg("value").c_str()});
+  const auto cmd = firenet::parseControlCommands(pairs);
+  auto has = [&](const char* c) { return cmd.find(c) != cmd.end(); };
+  auto get = [&](const char* c, long def) { auto it = cmd.find(c); return it != cmd.end() ? it->second : controlValue(m, c, def); };
 
-  // 1) Analyse JSON
-  bool bVal = false;
-  if (findJsonBool(raw, "on", bVal) || findJsonBool(raw, "onOff", bVal)) {
-    newOn = bVal ? 1 : 0;
-  }
-  String sMode;
-  if (findJsonString(raw, "mode", sMode) || findJsonString(raw, "operatingMode", sMode)) {
-    sMode.toLowerCase();
-    if (sMode == "manual") newMode = 0;
-    else if (sMode == "auto") newMode = 1;
-    else if (sMode == "comfort") newMode = 2;
-  }
-  float fVal;
-  if (findJsonFloat(raw, "target_temperature", fVal) ||
-      findJsonFloat(raw, "temperature", fVal) ||
-      findJsonFloat(raw, "tempRoomTarget", fVal) ||
-      findJsonFloat(raw, "roomTarget", fVal)) {
-    newRoom = (fVal < 50.0f) ? (long)round(fVal * 10.0f) : (long)fVal;
-  }
-  if (findJsonFloat(raw, "power_percent", fVal) ||
-      findJsonFloat(raw, "power", fVal) ||
-      findJsonFloat(raw, "heatingPower", fVal) ||
-      findJsonFloat(raw, "targetStage", fVal)) {
-    newStage = (long)fVal;
-  }
-  if (newOn < 0 && (findJsonFloat(raw, "onOff", fVal) || findJsonFloat(raw, "on", fVal))) newOn = (long)fVal;
-  if (newMode < 0 && (findJsonFloat(raw, "mode", fVal) || findJsonFloat(raw, "operatingMode", fVal))) newMode = (long)fVal;
+  // Read-modify-write: the base settings and MultiAir are always sent, the others only when commanded.
+  long finalOn = get("onOff", 0), finalMode = get("mode", 2), finalStage = get("targetStage", 70), finalRoom = get("roomTarget", 200);
+  long fan1On = get("convectionFan1Active", 0), fan2On = get("convectionFan2Active", 0);
+  long fan1Level = get("convectionFan1Level", 0), fan2Level = get("convectionFan2Level", 0);
+  if (fan1Level < 0) fan1Level = controlValue(m, "convectionFan1Level", 0);
+  if (fan2Level < 0) fan2Level = controlValue(m, "convectionFan2Level", 0);
+  long fan1Area = get("convectionFan1Area", 0), fan2Area = get("convectionFan2Area", 0);
+  if (fan1Area < -30 || fan1Area > 30) fan1Area = controlValue(m, "convectionFan1Area", 0);
+  if (fan2Area < -30 || fan2Area > 30) fan2Area = controlValue(m, "convectionFan2Area", 0);
 
-  if (findJsonBool(raw, "convectionFan1Active", bVal) || findJsonBool(raw, "convection_fan1_active", bVal) ||
-      findJsonBool(raw, "fan1Active", bVal) || findJsonBool(raw, "fan1On", bVal) || findJsonBool(raw, "fan1", bVal)) {
-    newFan1On = bVal ? 1 : 0;
+  std::vector<std::pair<std::string, long>> full = {
+    {"revision", (long)m.revision}, {"onOff", finalOn}, {"mode", finalMode}, {"targetStage", finalStage}, {"roomTarget", finalRoom},
+    {"convectionFan1Active", fan1On}, {"convectionFan1Level", fan1Level}, {"convectionFan1Area", fan1Area},
+    {"convectionFan2Active", fan2On}, {"convectionFan2Level", fan2Level}, {"convectionFan2Area", fan2Area},
+  };
+  for (const char* c : {"heatingTimesActive", "setBackTemp", "frostProtectionActive", "frostProtectionTemp", "ecoMode"}) {
+    if (has(c) && cmd.at(c) >= 0) full.push_back({c, cmd.at(c)});
   }
-  if (findJsonBool(raw, "convectionFan2Active", bVal) || findJsonBool(raw, "convection_fan2_active", bVal) ||
-      findJsonBool(raw, "fan2Active", bVal) || findJsonBool(raw, "fan2On", bVal) || findJsonBool(raw, "fan2", bVal)) {
-    newFan2On = bVal ? 1 : 0;
+  if (has("bakeTarget") && cmd.at("bakeTarget") >= 0) {
+    long b = cmd.at("bakeTarget"); full.push_back({"bakeTarget", b < 130 ? 130 : (b > 340 ? 340 : b)});
   }
-  if (findJsonFloat(raw, "convectionFan1Level", fVal) || findJsonFloat(raw, "convection_fan1_level", fVal) || findJsonFloat(raw, "fan1Level", fVal)) {
-    newFan1Level = (long)fVal;
+  if (has("roomTempOffset")) {
+    long o = cmd.at("roomTempOffset"); full.push_back({"roomTempOffset", o < -40 ? -40 : (o > 40 ? 40 : o)});
   }
-  if (findJsonFloat(raw, "convectionFan2Level", fVal) || findJsonFloat(raw, "convection_fan2_level", fVal) || findJsonFloat(raw, "fan2Level", fVal)) {
-    newFan2Level = (long)fVal;
-  }
-  if (findJsonFloat(raw, "convectionFan1Area", fVal) || findJsonFloat(raw, "convection_fan1_area", fVal) || findJsonFloat(raw, "fan1Area", fVal)) {
-    newFan1Area = (long)fVal;
-  }
-  if (findJsonFloat(raw, "convectionFan2Area", fVal) || findJsonFloat(raw, "convection_fan2_area", fVal) || findJsonFloat(raw, "fan2Area", fVal)) {
-    newFan2Area = (long)fVal;
-  }
-  if (newFan1On < 0 && (findJsonFloat(raw, "convectionFan1Active", fVal) || findJsonFloat(raw, "fan1On", fVal) || findJsonFloat(raw, "fan1", fVal))) newFan1On = (long)fVal;
-  if (newFan2On < 0 && (findJsonFloat(raw, "convectionFan2Active", fVal) || findJsonFloat(raw, "fan2On", fVal) || findJsonFloat(raw, "fan2", fVal))) newFan2On = (long)fVal;
-
-  if (findJsonBool(raw, "frostProtectionActive", bVal) || findJsonBool(raw, "frost_protection_active", bVal) ||
-      findJsonBool(raw, "frostActive", bVal) || findJsonBool(raw, "frostOn", bVal)) {
-    newFrostActive = bVal ? 1 : 0;
-  }
-  if (findJsonFloat(raw, "frostProtectionTemp", fVal) || findJsonFloat(raw, "frost_protection_temperature", fVal) ||
-      findJsonFloat(raw, "frost_protection_temp", fVal) || findJsonFloat(raw, "frostTemp", fVal) || findJsonFloat(raw, "tempFrost", fVal)) {
-    newFrostTemp = (fVal < 40.0f && fVal > 0.0f) ? (long)round(fVal * 10.0f) : (long)fVal;
-  }
-  if (findJsonFloat(raw, "bakeTarget", fVal) || findJsonFloat(raw, "bake_target_temperature", fVal) ||
-      findJsonFloat(raw, "bake_target", fVal) || findJsonFloat(raw, "bakeTemp", fVal) || findJsonFloat(raw, "bake", fVal)) {
-    newBakeTarget = (long)round(fVal);
-  }
-  if (findJsonFloat(raw, "room_temperature_offset", fVal) || findJsonFloat(raw, "room_temp_offset", fVal)) {
-    newTempOffset = (long)round(fVal * 10.0f);
-  } else if (findJsonFloat(raw, "roomTempOffset", fVal) || findJsonFloat(raw, "tempOffset", fVal) || findJsonFloat(raw, "roomOffset", fVal)) {
-    if (fVal > -4.5f && fVal < 4.5f && fVal != (long)fVal) newTempOffset = (long)round(fVal * 10.0f);
-    else newTempOffset = (long)round(fVal);
-  }
-
-  if (findJsonBool(raw, "ecoMode", bVal) || findJsonBool(raw, "eco_mode", bVal)) newEcoMode = bVal ? 1 : 0;
-  else if (findJsonFloat(raw, "ecoMode", fVal) || findJsonFloat(raw, "eco_mode", fVal)) newEcoMode = (fVal != 0.0f) ? 1 : 0;
-  if (findJsonBool(raw, "heatingTimesActive", bVal) || findJsonBool(raw, "heating_times_active", bVal) || findJsonBool(raw, "scheduleActive", bVal)) {
-    newHeatingTimesActive = bVal ? 1 : 0;
-  }
-  if (findJsonFloat(raw, "setBackTemp", fVal) || findJsonFloat(raw, "setback_temperature", fVal) || findJsonFloat(raw, "setbackTemp", fVal) || findJsonFloat(raw, "tempEco", fVal)) {
-    newSetBackTemp = (fVal < 50.0f) ? (long)round(fVal * 10.0f) : (long)fVal;
-  }
-  for (int i = 0; i < 14; i++) {
-    std::string k = firenet::ctrlName(7 + i);
-    long lVal = 0;
-    if (findJsonLong(raw, k.c_str(), lVal)) newHeatTimes[i] = lVal;
-  }
-
-  // 2) Form arguments / Query arguments
-  if (web.hasArg("on")) {
-    String s = web.arg("on");
-    newOn = (s == "true" || s == "1") ? 1 : 0;
-  }
-  if (web.hasArg("onOff")) newOn = web.arg("onOff").toInt();
-  if (web.hasArg("mode")) {
-    String s = web.arg("mode");
-    if (s == "manual") newMode = 0;
-    else if (s == "auto") newMode = 1;
-    else if (s == "comfort") newMode = 2;
-    else newMode = s.toInt();
-  }
-  if (web.hasArg("operatingMode")) newMode = web.arg("operatingMode").toInt();
-  if (web.hasArg("target_temperature")) {
-    float f = web.arg("target_temperature").toFloat();
-    newRoom = (f < 50.0f) ? (long)round(f * 10.0f) : (long)f;
-  }
-  if (web.hasArg("temperature")) {
-    float f = web.arg("temperature").toFloat();
-    newRoom = (f < 50.0f) ? (long)round(f * 10.0f) : (long)f;
-  }
-  if (web.hasArg("tempRoomTarget")) {
-    float f = web.arg("tempRoomTarget").toFloat();
-    newRoom = (f < 50.0f) ? (long)round(f * 10.0f) : (long)f;
-  }
-  if (web.hasArg("roomTarget")) {
-    float f = web.arg("roomTarget").toFloat();
-    newRoom = (f < 50.0f) ? (long)round(f * 10.0f) : (long)f;
-  }
-  if (web.hasArg("power_percent")) newStage = web.arg("power_percent").toInt();
-  if (web.hasArg("power")) newStage = web.arg("power").toInt();
-  if (web.hasArg("heatingPower")) newStage = web.arg("heatingPower").toInt();
-  if (web.hasArg("targetStage")) newStage = web.arg("targetStage").toInt();
-
-  if (web.hasArg("convectionFan1Active")) newFan1On = web.arg("convectionFan1Active").toInt();
-  if (web.hasArg("fan1On") || web.hasArg("fan1")) newFan1On = (web.arg("fan1On") == "true" || web.arg("fan1On") == "1" || web.arg("fan1") == "1") ? 1 : 0;
-  if (web.hasArg("convectionFan1Level") || web.hasArg("fan1Level")) newFan1Level = (web.hasArg("convectionFan1Level") ? web.arg("convectionFan1Level") : web.arg("fan1Level")).toInt();
-  if (web.hasArg("convectionFan1Area") || web.hasArg("fan1Area")) newFan1Area = (web.hasArg("convectionFan1Area") ? web.arg("convectionFan1Area") : web.arg("fan1Area")).toInt();
-
-  if (web.hasArg("convectionFan2Active")) newFan2On = web.arg("convectionFan2Active").toInt();
-  if (web.hasArg("fan2On") || web.hasArg("fan2")) newFan2On = (web.arg("fan2On") == "true" || web.arg("fan2On") == "1" || web.arg("fan2") == "1") ? 1 : 0;
-  if (web.hasArg("convectionFan2Level") || web.hasArg("fan2Level")) newFan2Level = (web.hasArg("convectionFan2Level") ? web.arg("convectionFan2Level") : web.arg("fan2Level")).toInt();
-  if (web.hasArg("convectionFan2Area") || web.hasArg("fan2Area")) newFan2Area = (web.hasArg("convectionFan2Area") ? web.arg("convectionFan2Area") : web.arg("fan2Area")).toInt();
-
-  if (web.hasArg("frostProtectionActive") || web.hasArg("frost_protection_active") || web.hasArg("frostActive") || web.hasArg("frostOn")) {
-    String s = web.hasArg("frostProtectionActive") ? web.arg("frostProtectionActive") :
-               (web.hasArg("frost_protection_active") ? web.arg("frost_protection_active") :
-               (web.hasArg("frostActive") ? web.arg("frostActive") : web.arg("frostOn")));
-    newFrostActive = (s == "true" || s == "1") ? 1 : 0;
-  }
-  if (web.hasArg("frostProtectionTemp") || web.hasArg("frost_protection_temperature") || web.hasArg("frost_protection_temp") || web.hasArg("frostTemp") || web.hasArg("tempFrost")) {
-    String s = web.hasArg("frostProtectionTemp") ? web.arg("frostProtectionTemp") :
-               (web.hasArg("frost_protection_temperature") ? web.arg("frost_protection_temperature") :
-               (web.hasArg("frost_protection_temp") ? web.arg("frost_protection_temp") :
-               (web.hasArg("frostTemp") ? web.arg("frostTemp") : web.arg("tempFrost"))));
-    float f = s.toFloat();
-    newFrostTemp = (f < 40.0f && f > 0.0f) ? (long)round(f * 10.0f) : (long)f;
-  }
-  if (web.hasArg("bakeTarget") || web.hasArg("bake_target_temperature") || web.hasArg("bake_target") || web.hasArg("bakeTemp") || web.hasArg("bake")) {
-    String s = web.hasArg("bakeTarget") ? web.arg("bakeTarget") :
-               (web.hasArg("bake_target_temperature") ? web.arg("bake_target_temperature") :
-               (web.hasArg("bake_target") ? web.arg("bake_target") :
-               (web.hasArg("bakeTemp") ? web.arg("bakeTemp") : web.arg("bake"))));
-    newBakeTarget = (long)round(s.toFloat());
-  }
-  if (web.hasArg("room_temperature_offset") || web.hasArg("room_temp_offset")) {
-    float f = (web.hasArg("room_temperature_offset") ? web.arg("room_temperature_offset") : web.arg("room_temp_offset")).toFloat();
-    newTempOffset = (long)round(f * 10.0f);
-  } else if (web.hasArg("roomTempOffset") || web.hasArg("tempOffset") || web.hasArg("roomOffset") || web.hasArg("offset")) {
-    String s = web.hasArg("roomTempOffset") ? web.arg("roomTempOffset") :
-               (web.hasArg("tempOffset") ? web.arg("tempOffset") :
-               (web.hasArg("roomOffset") ? web.arg("roomOffset") : web.arg("offset")));
-    float f = s.toFloat();
-    if (f > -4.5f && f < 4.5f && f != (long)f) newTempOffset = (long)round(f * 10.0f);
-    else newTempOffset = (long)round(f);
-  }
-
-  if (web.hasArg("heatingTimesActive") || web.hasArg("scheduleActive")) {
-    String s = web.hasArg("heatingTimesActive") ? web.arg("heatingTimesActive") : web.arg("scheduleActive");
-    newHeatingTimesActive = (s == "true" || s == "1") ? 1 : 0;
-  }
-  if (web.hasArg("setBackTemp") || web.hasArg("setback_temperature") || web.hasArg("setbackTemp") || web.hasArg("tempEco")) {
-    String s = web.hasArg("setBackTemp") ? web.arg("setBackTemp") : (web.hasArg("setback_temperature") ? web.arg("setback_temperature") : (web.hasArg("setbackTemp") ? web.arg("setbackTemp") : web.arg("tempEco")));
-    float f = s.toFloat();
-    newSetBackTemp = (f < 50.0f) ? (long)round(f * 10.0f) : (long)f;
-  }
-  for (int i = 0; i < 14; i++) {
-    std::string k = firenet::ctrlName(7 + i);
-    if (web.hasArg(k.c_str())) newHeatTimes[i] = web.arg(k.c_str()).toInt();
-  }
-
-  // 3) Form single name/value (utilisé par steppers & sliders web UI)
-  if (web.hasArg("name") && web.hasArg("value")) {
-    String n = web.arg("name");
-    String v = web.arg("value");
-    if (n == "on" || n == "onOff") newOn = (v == "true" || v == "1") ? 1 : 0;
-    else if (n == "mode" || n == "operatingMode") {
-      if (v == "manual") newMode = 0;
-      else if (v == "auto") newMode = 1;
-      else if (v == "comfort") newMode = 2;
-      else newMode = v.toInt();
-    } else if (n == "roomTarget" || n == "target_temperature" || n == "temperature" || n == "tempRoomTarget" || n == "room") {
-      float f = v.toFloat();
-      newRoom = (f < 50.0f) ? (long)round(f * 10.0f) : (long)f;
-    } else if (n == "targetStage" || n == "power_percent" || n == "power" || n == "heatingPower" || n == "stage") {
-      newStage = v.toInt();
-    } else if (n == "convectionFan1Active" || n == "fan1On" || n == "fan1") {
-      newFan1On = (v == "true" || v == "1") ? 1 : 0;
-    } else if (n == "convectionFan1Level" || n == "fan1Level") {
-      newFan1Level = v.toInt();
-    } else if (n == "convectionFan1Area" || n == "fan1Area") {
-      newFan1Area = v.toInt();
-    } else if (n == "convectionFan2Active" || n == "fan2On" || n == "fan2") {
-      newFan2On = (v == "true" || v == "1") ? 1 : 0;
-    } else if (n == "convectionFan2Level" || n == "fan2Level") {
-      newFan2Level = v.toInt();
-    } else if (n == "convectionFan2Area" || n == "fan2Area") {
-      newFan2Area = v.toInt();
-    } else if (n == "frostProtectionActive" || n == "frost_protection_active" || n == "frostActive" || n == "frostOn") {
-      newFrostActive = (v == "true" || v == "1") ? 1 : 0;
-    } else if (n == "frostProtectionTemp" || n == "frost_protection_temperature" || n == "frost_protection_temp" || n == "frostTemp" || n == "tempFrost") {
-      float f = v.toFloat();
-      newFrostTemp = (f < 40.0f && f > 0.0f) ? (long)round(f * 10.0f) : (long)f;
-    } else if (n == "bakeTarget" || n == "bake_target_temperature" || n == "bake_target" || n == "bakeTemp" || n == "bake") {
-      newBakeTarget = (long)round(v.toFloat());
-    } else if (n == "room_temperature_offset" || n == "room_temp_offset") {
-      newTempOffset = (long)round(v.toFloat() * 10.0f);
-    } else if (n == "roomTempOffset" || n == "tempOffset" || n == "roomOffset" || n == "offset") {
-      float f = v.toFloat();
-      if (f > -4.5f && f < 4.5f && f != (long)f) newTempOffset = (long)round(f * 10.0f);
-      else newTempOffset = (long)round(f);
-    } else if (n == "ecoMode" || n == "eco_mode") {
-      newEcoMode = (v == "true" || v == "1") ? 1 : 0;
-    } else if (n == "heatingTimesActive" || n == "scheduleActive") {
-      newHeatingTimesActive = (v == "true" || v == "1") ? 1 : 0;
-    } else if (n == "setBackTemp" || n == "setback_temperature" || n == "setbackTemp" || n == "tempEco") {
-      float f = v.toFloat();
-      newSetBackTemp = (f < 50.0f) ? (long)round(f * 10.0f) : (long)f;
-    } else {
-      for (int i = 0; i < 14; i++) {
-        if (n == firenet::ctrlName(7 + i).c_str()) {
-          newHeatTimes[i] = v.toInt();
-          break;
-        }
-      }
-    }
-  }
-
-  // 4) Format legacy point-virgule (si texte brut)
-  if (newOn < 0 && raw.indexOf("onOff=") >= 0) {
-    auto extract = [&](const String& key) -> long {
-      int idx = raw.indexOf(key + "=");
-      if (idx < 0) return -1;
-      int eq = raw.indexOf('=', idx);
-      if (eq < 0) return -1;
-      int sc = raw.indexOf(';', eq);
-      if (sc < 0) sc = raw.indexOf('&', eq);
-      if (sc < 0) sc = raw.length();
-      return raw.substring(eq + 1, sc).toInt();
-    };
-    newOn = extract("onOff");
-    if (newMode < 0) newMode = extract("operatingMode");
-    if (newStage < 0) newStage = extract("heatingPower");
-    if (newRoom < 0) newRoom = extract("tempRoomTarget");
-  }
-
-  // Récupérer les valeurs actuelles pour read-modify-write
-  const auto& m = g_link->model();
-  long curOn = 0, curMode = 2, curStage = 70, curRoom = 200;
-  auto itOn = m.controls.find("onOff"); if (itOn != m.controls.end()) curOn = itOn->second;
-  else if (m.controls_pos.size() >= 5) curOn = m.controls_pos[1];
-  auto itMode = m.controls.find("mode"); if (itMode != m.controls.end()) curMode = itMode->second;
-  else if (m.controls_pos.size() >= 5) curMode = m.controls_pos[2];
-  auto itStage = m.controls.find("targetStage"); if (itStage != m.controls.end()) curStage = itStage->second;
-  else if (m.controls_pos.size() >= 5) curStage = m.controls_pos[3];
-  auto itRoom = m.controls.find("roomTarget"); if (itRoom != m.controls.end()) curRoom = itRoom->second;
-  else if (m.controls_pos.size() >= 5) curRoom = m.controls_pos[4];
-
-  long curFan1On = 0, curFan1Level = 0, curFan1Area = 0;
-  long curFan2On = 0, curFan2Level = 0, curFan2Area = 0;
-  auto itF1O = m.controls.find("convectionFan1Active"); if (itF1O != m.controls.end()) curFan1On = itF1O->second;
-  else if (m.controls_pos.size() > 23) curFan1On = m.controls_pos[23];
-  auto itF1L = m.controls.find("convectionFan1Level"); if (itF1L != m.controls.end()) curFan1Level = itF1L->second;
-  else if (m.controls_pos.size() > 24) curFan1Level = m.controls_pos[24];
-  auto itF1A = m.controls.find("convectionFan1Area"); if (itF1A != m.controls.end()) curFan1Area = itF1A->second;
-  else if (m.controls_pos.size() > 25) curFan1Area = m.controls_pos[25];
-
-  auto itF2O = m.controls.find("convectionFan2Active"); if (itF2O != m.controls.end()) curFan2On = itF2O->second;
-  else if (m.controls_pos.size() > 26) curFan2On = m.controls_pos[26];
-  auto itF2L = m.controls.find("convectionFan2Level"); if (itF2L != m.controls.end()) curFan2Level = itF2L->second;
-  else if (m.controls_pos.size() > 27) curFan2Level = m.controls_pos[27];
-  auto itF2A = m.controls.find("convectionFan2Area"); if (itF2A != m.controls.end()) curFan2Area = itF2A->second;
-  else if (m.controls_pos.size() > 28) curFan2Area = m.controls_pos[28];
-
-  long curFrostActive = 0, curFrostTemp = 50;
-  auto itFA = m.controls.find("frostProtectionActive"); if (itFA != m.controls.end()) curFrostActive = itFA->second;
-  else if (m.controls_pos.size() > 29) curFrostActive = m.controls_pos[29];
-  auto itFT = m.controls.find("frostProtectionTemp"); if (itFT != m.controls.end()) curFrostTemp = itFT->second;
-  else if (m.controls_pos.size() > 30 && m.controls_pos[30] > 0) curFrostTemp = m.controls_pos[30];
-
-  long curBakeTarget = 180;
-  auto itBT = m.controls.find("bakeTarget"); if (itBT != m.controls.end()) curBakeTarget = itBT->second;
-  else if (m.controls_pos.size() > 5 && m.controls_pos[5] > 0) curBakeTarget = m.controls_pos[5];
-
-  long curTempOffset = 0;
-  auto itTO = m.controls.find("roomTempOffset"); if (itTO != m.controls.end()) curTempOffset = itTO->second;
-  else if (m.controls_pos.size() > 31) curTempOffset = m.controls_pos[31];
-
-  long finalOn = (newOn >= 0) ? newOn : curOn;
-  long finalMode = (newMode >= 0) ? newMode : curMode;
-  long finalStage = (newStage >= 0) ? newStage : curStage;
-  long finalRoom = (newRoom >= 0) ? newRoom : curRoom;
-  long finalFan1On = (newFan1On >= 0) ? newFan1On : curFan1On;
-  long finalFan1Level = (newFan1Level >= 0) ? newFan1Level : curFan1Level;
-  long finalFan1Area = (newFan1Area >= -30 && newFan1Area <= 30) ? newFan1Area : curFan1Area;
-  long finalFan2On = (newFan2On >= 0) ? newFan2On : curFan2On;
-  long finalFan2Level = (newFan2Level >= 0) ? newFan2Level : curFan2Level;
-  long finalFan2Area = (newFan2Area >= -30 && newFan2Area <= 30) ? newFan2Area : curFan2Area;
-  long finalFrostActive = (newFrostActive >= 0) ? newFrostActive : curFrostActive;
-  long finalFrostTemp = (newFrostTemp >= 0) ? newFrostTemp : curFrostTemp;
-  float fFrostTempF = finalFrostTemp / 10.0f;
-
-  long finalBakeTarget = (newBakeTarget >= 0) ? newBakeTarget : curBakeTarget;
-  if (finalBakeTarget < 130) finalBakeTarget = 130;
-  if (finalBakeTarget > 340) finalBakeTarget = 340;
-
-  long finalTempOffset = (newTempOffset != -999) ? newTempOffset : curTempOffset;
-  if (finalTempOffset < -40) finalTempOffset = -40;
-  if (finalTempOffset > 40) finalTempOffset = 40;
-  float fTempOffsetF = finalTempOffset / 10.0f;
-
-  std::vector<std::pair<std::string,long>> full;
-  full.push_back({"revision", (long)m.revision});
-  full.push_back({"onOff", finalOn});
-  full.push_back({"mode", finalMode});
-  full.push_back({"targetStage", finalStage});
-  full.push_back({"roomTarget", finalRoom});
-  full.push_back({"convectionFan1Active", finalFan1On});
-  full.push_back({"convectionFan1Level", finalFan1Level});
-  full.push_back({"convectionFan1Area", finalFan1Area});
-  full.push_back({"convectionFan2Active", finalFan2On});
-  full.push_back({"convectionFan2Level", finalFan2Level});
-  full.push_back({"convectionFan2Area", finalFan2Area});
-
-  if (newHeatingTimesActive >= 0) full.push_back({"heatingTimesActive", newHeatingTimesActive});
-  if (newSetBackTemp >= 0) full.push_back({"setBackTemp", newSetBackTemp});
-  if (newFrostActive >= 0) full.push_back({"frostProtectionActive", newFrostActive});
-  if (newFrostTemp >= 0) full.push_back({"frostProtectionTemp", newFrostTemp});
-  if (newBakeTarget >= 0) full.push_back({"bakeTarget", finalBakeTarget});
-  if (newTempOffset != -999) full.push_back({"roomTempOffset", finalTempOffset});
-  if (newEcoMode >= 0) full.push_back({"ecoMode", newEcoMode});
-  for (int i = 0; i < 14; i++) {
-    if (newHeatTimes[i] >= 0) full.push_back({firenet::ctrlName(7 + i), newHeatTimes[i]});
+  for (int i = 7; i <= 20; i++) {
+    std::string k = firenet::ctrlName(i);
+    auto it = cmd.find(k);
+    if (it != cmd.end() && it->second >= 0) full.push_back({k, it->second});
   }
 
   g_link->applyControls(full);
   lastPoll = millis();
 
   const char* modeName = (finalMode == 0) ? "manual" : ((finalMode == 1) ? "auto" : "comfort");
-  float rTargetF = finalRoom / 10.0f;
-  char resBuf[768];
+  char resBuf[256];
   snprintf(resBuf, sizeof(resBuf),
-    "{"
-    "\"ok\":true,"
-    "\"on\":%s,"
-    "\"mode\":\"%s\","
-    "\"mode_code\":%ld,"
-    "\"target_temperature\":%.1f,"
-    "\"power_percent\":%ld,"
-    "\"convectionFan1Active\":%ld,"
-    "\"convectionFan1Level\":%ld,"
-    "\"convectionFan1Area\":%ld,"
-    "\"convectionFan2Active\":%ld,"
-    "\"convectionFan2Level\":%ld,"
-    "\"convectionFan2Area\":%ld,"
-    "\"frostProtectionActive\":%ld,"
-    "\"frost_protection_active\":%s,"
-    "\"frostProtectionTemp\":%ld,"
-    "\"frost_protection_temperature\":%.1f,"
-    "\"bakeTarget\":%ld,"
-    "\"bake_target_temperature\":%ld,"
-    "\"roomTempOffset\":%ld,"
-    "\"room_temperature_offset\":%.1f"
-    "}",
-    (finalOn == 1) ? "true" : "false",
-    modeName, finalMode, rTargetF, finalStage,
-    finalFan1On, finalFan1Level, finalFan1Area,
-    finalFan2On, finalFan2Level, finalFan2Area,
-    finalFrostActive, (finalFrostActive == 1) ? "true" : "false",
-    finalFrostTemp, fFrostTempF,
-    finalBakeTarget, finalBakeTarget,
-    finalTempOffset, fTempOffsetF
-  );
+    "{\"ok\":true,\"on\":%s,\"mode\":\"%s\",\"mode_code\":%ld,\"target_temperature\":%.1f,\"power_percent\":%ld}",
+    finalOn == 1 ? "true" : "false", modeName, finalMode, finalRoom / 10.0f, finalStage);
   web.send(200, "application/json", resBuf);
 }
 
@@ -1550,11 +959,6 @@ void setup() {
   DBG.println("[web] démarré (avec portail captif + compatibilité open-firenet)");
 }
 
-// Mode chasse PRIO2 : pompe GET_REVISION + TRANSFER_COMPLETED en continu, SANS
-// nommer de capteurs, pour laisser le poêle émettre ses trames curées (PRIO2).
-// On compte les GET_REVISION pour corréler le déclenchement.
-#define HUNT_PRIO2 0
-static uint32_t g_grCount = 0;
 
 // ---------------------------------------------------------------------- loop
 void loop() {
@@ -1593,27 +997,6 @@ void loop() {
     delay(50); ESP.restart();
   }
 
-#if HUNT_PRIO2
-  if (g_link->model().version_ack) {
-    static bool precond = false;
-    if (!precond) {
-      // pré-condition (§6.3 l.465) : GET_CONTROLS ET GET_SENSORS reçus >=1 fois
-      g_link->requestStatus();
-      g_link->pollControls({});          // GET_CONTROLS=0 (vide)
-      g_link->pollSensors({});           // GET_SENSORS=0 (vide) -> laisse le poêle libre
-      precond = true;
-    } else if (g_link->txIdle()) {
-      // pompe : GR incrémente sensor_prio2_cnt ; TC draine les POST en attente.
-      if (WiFi.status() == WL_CONNECTED) g_link->setRssi(WiFi.RSSI());
-      g_link->sendRevision();
-      g_link->transferCompleted();
-      g_link->transferCompleted();
-      g_grCount++;
-      // relance périodiquement le slot status (~toutes les 40 pompes)
-      if (g_grCount % 40 == 0) g_link->requestStatus();
-    }
-  }
-#else
   // 2) cycle de lecture périodique une fois la version acquittée
   if (g_link->model().version_ack && g_link->txIdle() && millis() - lastPoll > 2000) {
     lastPoll = millis();
@@ -1654,7 +1037,6 @@ void loop() {
       }
     }
   }
-#endif
 
   // 3) battement de cœur sur le port COM (diagnostic terrain)
   static uint32_t lastBeat = 0;
@@ -1666,9 +1048,8 @@ void loop() {
                (long)m.revision, (unsigned)m.sensors.size(),
                (unsigned)m.controls.size(),
                WiFi.status()==WL_CONNECTED ? WiFi.RSSI() : 0);
-    DBG.printf("[hb] dropped=%u cdc_connected=%d txfree=%d grCount=%u\n",
-               (unsigned)g_link->dropped(), (bool)STOVE, STOVE.availableForWrite(),
-               (unsigned)g_grCount);
+    DBG.printf("[hb] dropped=%u cdc_connected=%d txfree=%d\n",
+               (unsigned)g_link->dropped(), (bool)STOVE, STOVE.availableForWrite());
     DBG.printf("[wifi] status=%d ip=%s rssi=%d ssid=%s\n",
                (int)WiFi.status(), WiFi.localIP().toString().c_str(),
                (int)WiFi.RSSI(), WiFi.SSID().c_str());

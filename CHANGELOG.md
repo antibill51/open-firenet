@@ -12,9 +12,10 @@
 
 ### Breaking changes
 - Removed the legacy endpoints `/api/status`, `/api/sensors` and `/api/arm`, and the duplicate routes `/restart` and `/reset-wifi`: use `/api/state`, `/api/restart` and `/api/forget` instead. The old `docs/api-explorer.html`, which relied on them, is removed too.
+- The reply to `POST /api/controls` is now a short acknowledgement (`ok`, `on`, `mode`, `target_temperature`, `power_percent`); read `/api/state` for the full state.
 
 ### Fixes
-- Smaller firmware: the web page is now stored compressed (about 100 KB less flash, more room for future updates).
+- Smaller firmware (about 130 KB less flash, more room for future updates): the web page is stored compressed, and the command parsing of the API was rewritten around a single table.
 - More free memory on the bridge: the debug log (CDC Logs tab, `/log`) keeps 48 KB of history, with repeated lines merged into one.
 - Stoves without a RIKA room sensor no longer show 102.4 °C: the room temperature is reported as unavailable (`null` in the API, `--` on the web page).
 - The link no longer restarts every minute while the stove is idle: the stove only sends changes, so the bridge now checks regularly that it still answers.
