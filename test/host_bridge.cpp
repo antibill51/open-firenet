@@ -29,7 +29,8 @@ int main(){
   std::string line;
   while(std::getline(std::cin,line)){
     std::istringstream is(line); std::string cmd; is>>cmd;
-    if(cmd=="RX"){ std::string h; is>>h; for(char c: fromHex(h)) link.onByte((uint8_t)c); }
+    if(cmd=="SETSTAGE"){ int s; is>>s; link.debugSetStage(s); }
+    else if(cmd=="RX"){ std::string h; is>>h; for(char c: fromHex(h)) link.onByte((uint8_t)c); }
     else if(cmd=="TICK"){ uint32_t d; is>>d; g_clk+=d; link.poll(); }
     else if(cmd=="REQSTATUS"){ link.requestStatus(); }
     else if(cmd=="PUSHSTATUS"){ std::string s,w; is>>s>>w; link.pushStatus(s,w); }
@@ -77,6 +78,7 @@ int main(){
       auto ss=m.sensors.find("subState"); if(ss!=m.sensors.end()) std::cout<<" subState="<<ss->second;
       std::cout<<" spn="<<m.sensors_pos.size();
       for(size_t i=0;i<m.sensors_pos.size();i++) std::cout<<" sp"<<i<<"="<<m.sensors_pos[i];
+      for(size_t i=0;i<m.controls_pos.size();i++) std::cout<<" cp"<<i<<"="<<m.controls_pos[i];
       std::cout<<"\n";
     }
     while(link.txPending()>0){ g_clk += DongleLink::TX_GAP_MS; link.poll(); }
