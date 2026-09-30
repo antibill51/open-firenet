@@ -11,6 +11,7 @@
 //
 // USB : VID 0x303A / PID 0x819A.
 
+#include <mutex>
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
@@ -256,53 +257,78 @@ static const char* getStoveModelName(long modelId) {
 static String jsonState() {
   const auto& m = g_link->model();
 
-  long rTemp = (m.sensors_pos.size() > 0) ? m.sensors_pos[0] : 0;
+  long rTemp = 0, fTemp = 0, bTemp = 0, mainSt = 1, sState = 0;
+  long pTotal = 0, pHours = 0, sCount = 700, idFan = 0, auger = 0;
+  long errMask = 0, errSub = 0;
+  long modelId = (m.generation == 2) ? 1 : 13;   // 1 = INDUO, 13 = DOMO
+  long appVer  = (m.generation == 2) ? 227 : 229;
+  long buildVer = (m.generation == 2) ? 44501 : 58512;
+
+  if (m.generation == 2) {
+    // Schéma positionnel V1 (INDUO V2.26 / V2.27, PRIO 1)
+    if (m.sensors_pos.size() > 0)  rTemp = m.sensors_pos[0];
+    if (m.sensors_pos.size() > 1)  fTemp = m.sensors_pos[1];
+    if (m.sensors_pos.size() > 2)  errMask = m.sensors_pos[2];
+    if (m.sensors_pos.size() > 3)  errSub = m.sensors_pos[3];
+    if (m.sensors_pos.size() > 4)  sCount = m.sensors_pos[4];
+    if (m.sensors_pos.size() > 6)  auger = m.sensors_pos[6];
+    if (m.sensors_pos.size() > 7)  idFan = m.sensors_pos[7];
+    if (m.sensors_pos.size() > 9)  pHours = m.sensors_pos[9];
+    if (m.sensors_pos.size() > 11) pTotal = m.sensors_pos[11];
+  } else {
+    // Schéma positionnel V3 (DOMO V2.29+)
+    if (m.sensors_pos.size() > 0)  rTemp = m.sensors_pos[0];
+    if (m.sensors_pos.size() > 1)  fTemp = m.sensors_pos[1];
+    if (m.sensors_pos.size() > 3)  errMask = m.sensors_pos[3];
+    if (m.sensors_pos.size() > 4)  errSub = m.sensors_pos[4];
+    if (m.sensors_pos.size() > 7)  auger = m.sensors_pos[7];
+    if (m.sensors_pos.size() > 9)  idFan = m.sensors_pos[9];
+    if (m.sensors_pos.size() > 27) bTemp = m.sensors_pos[27];
+    if (m.sensors_pos.size() > 31) mainSt = m.sensors_pos[31];
+    if (m.sensors_pos.size() > 32) sState = m.sensors_pos[32];
+    if (m.sensors_pos.size() > 36) modelId = m.sensors_pos[36];
+    if (m.sensors_pos.size() > 38) appVer = m.sensors_pos[38];
+    if (m.sensors_pos.size() > 44) buildVer = m.sensors_pos[44];
+    if (m.sensors_pos.size() > 47) pHours = m.sensors_pos[47];
+    if (m.sensors_pos.size() > 49) pTotal = m.sensors_pos[49];
+    if (m.sensors_pos.size() > 50) sCount = m.sensors_pos[50];
+  }
+
+  // Surcharges par clé nommée si présentes dans model_.sensors
   auto itR = m.sensors.find("roomTemp"); if (itR != m.sensors.end()) rTemp = itR->second;
-
-  long fTemp = (m.sensors_pos.size() > 1) ? m.sensors_pos[1] : 0;
   auto itF = m.sensors.find("flame"); if (itF != m.sensors.end()) fTemp = itF->second;
-
-  long bTemp = (m.sensors_pos.size() > 27) ? m.sensors_pos[27] : 0;
   auto itB = m.sensors.find("boardSensor"); if (itB != m.sensors.end()) bTemp = itB->second;
-
-  long mainSt = (m.sensors_pos.size() > 31) ? m.sensors_pos[31] : 1;
   auto itMS = m.sensors.find("mainState"); if (itMS != m.sensors.end()) mainSt = itMS->second;
-
-  long sState = (m.sensors_pos.size() > 32) ? m.sensors_pos[32] : 0;
   auto itSS = m.sensors.find("subState"); if (itSS != m.sensors.end()) sState = itSS->second;
-
-  long pTotal = (m.sensors_pos.size() > 49) ? m.sensors_pos[49] : 0;
   auto itPT = m.sensors.find("pelletsTotal"); if (itPT != m.sensors.end()) pTotal = itPT->second;
-
-  long pHours = (m.sensors_pos.size() > 47) ? m.sensors_pos[47] : 0;
   auto itPH = m.sensors.find("pelletHours"); if (itPH != m.sensors.end()) pHours = itPH->second;
-
-  long sCount = (m.sensors_pos.size() > 50) ? m.sensors_pos[50] : 700;
   auto itSC = m.sensors.find("serviceCountdown"); if (itSC != m.sensors.end()) sCount = itSC->second;
-
-  long idFan = (m.sensors_pos.size() > 9) ? m.sensors_pos[9] : 0;
   auto itFan = m.sensors.find("idFanMeas"); if (itFan != m.sensors.end()) idFan = itFan->second;
-
-  long auger = (m.sensors_pos.size() > 7) ? m.sensors_pos[7] : 0;
   auto itAug = m.sensors.find("augerSet"); if (itAug != m.sensors.end()) auger = itAug->second;
-
-  long errMask = (m.sensors_pos.size() > 3) ? m.sensors_pos[3] : 0;
   auto itEM = m.sensors.find("errMask32"); if (itEM != m.sensors.end()) errMask = itEM->second;
-
-  long errSub = (m.sensors_pos.size() > 4) ? m.sensors_pos[4] : 0;
   auto itES = m.sensors.find("errSub"); if (itES != m.sensors.end()) errSub = itES->second;
-
-  long modelId = (m.sensors_pos.size() > 36) ? m.sensors_pos[36] : 13;
   auto itMod = m.sensors.find("model"); if (itMod != m.sensors.end()) modelId = itMod->second;
-  const char* modelName = getStoveModelName(modelId);
-
-  long appVer = (m.sensors_pos.size() > 38) ? m.sensors_pos[38] : 229;
   auto itAV = m.sensors.find("appVerBoard"); if (itAV != m.sensors.end()) appVer = itAV->second;
-
-  long buildVer = (m.sensors_pos.size() > 44) ? m.sensors_pos[44] : 58512;
   auto itBV = m.sensors.find("firmwareBuild"); if (itBV != m.sensors.end()) buildVer = itBV->second;
 
+  // Warning bitmask and air flaps (official record names statusWarning / outputAirFlaps / outputAirFlapsTargetPosition).
+  // Air flap values are tenths of a percent (the Rika cloud integrations divide them by 10). A missing record, e.g. on a
+  // stove whose names are not registered yet, is published as null.
+  long warnCode = 0;
+  auto itW = m.sensors.find("statusWarning"); if (itW != m.sensors.end()) warnCode = itW->second;
+  char airFlapsS[16] = "null", airFlapsTgtS[16] = "null";
+  auto itAF = m.sensors.find("airFlaps");
+  if (itAF != m.sensors.end()) snprintf(airFlapsS, sizeof airFlapsS, "%.1f", itAF->second / 10.0f);
+  auto itAT = m.sensors.find("airFlapsTarget");
+  if (itAT != m.sensors.end()) snprintf(airFlapsTgtS, sizeof airFlapsTgtS, "%.1f", itAT->second / 10.0f);
+  // Without a RIKA room sensor the stove reports the constant 1024 (0x400) as room temperature (read in the 2.27
+  // disassembly: record 0 is set to 0x400 when no sensor is present); publish null instead of 102.4 °C.
+  bool roomSensor = (rTemp != 1024);
+
+  const char* modelName = getStoveModelName(modelId);
+
   long curOn = 0, curMode = 2, curStage = 70, curRoom = 200;
+  if (m.generation == 2 && m.sensors_pos.size() > 12) curOn = m.sensors_pos[12];
   auto itOn = m.controls.find("onOff"); if (itOn != m.controls.end()) curOn = itOn->second;
   else if (m.controls_pos.size() >= 5) curOn = m.controls_pos[1];
 
@@ -380,7 +406,10 @@ static String jsonState() {
   float fTempF = (float)fTemp;
   float bTempF = (float)bTemp;
 
-  char buf[1800];
+  char roomTempS[16] = "null";
+  if (roomSensor) snprintf(roomTempS, sizeof roomTempS, "%.1f", rTempF);
+
+  char buf[2000];
   snprintf(buf, sizeof(buf),
     "{"
     "\"device\":{"
@@ -405,20 +434,24 @@ static String jsonState() {
       "\"has_error\":%s,"
       "\"error_code\":%ld,"
       "\"error_sub\":%ld,"
+      "\"warning_code\":%ld,"
       "\"model\":%ld,"
       "\"model_name\":\"%s\","
       "\"mainboard_version\":\"%ld.%02ld\","
       "\"firmware_build\":\"%ld\""
     "},"
     "\"sensors\":{"
-      "\"room_temperature\":%.1f,"
+      "\"room_temperature\":%s,"
+      "\"room_sensor_connected\":%s,"
       "\"combustion_temperature\":%.1f,"
       "\"board_temperature\":%.1f,"
       "\"pellets_total_kg\":%ld,"
       "\"pellet_hours\":%ld,"
       "\"service_countdown_kg\":%ld,"
       "\"fan_speed_rpm\":%ld,"
-      "\"auger_speed_rpm\":%ld"
+      "\"auger_speed_rpm\":%ld,"
+      "\"air_flaps_percent\":%s,"
+      "\"air_flaps_target_percent\":%s"
     "},"
     "\"controls\":{"
       "\"on\":%s,"
@@ -449,9 +482,10 @@ static String jsonState() {
     stName, mainSt, stLabel, sState,
     isBurning ? "true" : "false",
     errMask != 0 ? "true" : "false",
-    errMask, errSub,
+    errMask, errSub, warnCode,
     modelId, modelName, appVer / 100, appVer % 100, buildVer,
-    rTempF, fTempF, bTempF, pTotal, pHours, sCount, idFan, auger,
+    roomTempS, roomSensor ? "true" : "false", fTempF, bTempF, pTotal, pHours, sCount, idFan, auger,
+    airFlapsS, airFlapsTgtS,
     (curOn == 1) ? "true" : "false",
     modeName, curMode, rTargetF, curStage,
     (htActive == 1) ? "true" : "false", sbTempF,
@@ -469,6 +503,10 @@ static String jsonState() {
   j += "\"uptime_seconds\":" + String(millis() / 1000UL) + ",";
   j += "\"write_enabled\":true,";
   j += "\"version_ack\":" + String(m.version_ack ? "true" : "false") + ",";
+  // version_profile: which family's probe got acked (DongleLink::DETECT_V3=0, DETECT_V28=1, DETECT_V1=2); a
+  // detected 2.28 still runs the DOMO/V3 protocol (generation=1), this label is for display only.
+  const char* verFrameLabel = m.version_profile == 0 ? "V3" : (m.version_profile == 1 ? "V28" : (m.version_profile == 2 ? "V1" : "?"));
+  j += "\"version_frame\":\"" + String(verFrameLabel) + "\",";
   j += "\"generation\":" + String(m.generation) + ",";
   j += "\"frames_in\":" + String(m.frames_in) + ",";
   j += "\"frames_out\":" + String(m.frames_out) + ",";
@@ -489,7 +527,8 @@ static String jsonState() {
   first = true;
   for (auto& kv : m.status) {
     if (!first) j += ","; first = false;
-    j += "\"" + String(kv.first.c_str()) + "\":\"" + String(kv.second.c_str()) + "\"";
+    String val = (kv.first == "wpa2" && !kv.second.empty() && kv.second != "0") ? "********" : String(kv.second.c_str());
+    j += "\"" + String(kv.first.c_str()) + "\":\"" + val + "\"";
   }
   j += "},";
 
@@ -536,7 +575,7 @@ static void handleTxGap() {
   char buf[64];
   snprintf(buf, sizeof buf, "{\"ms\":%u,\"default\":%u,\"min\":%u,\"max\":%u}",
            (unsigned)g_link->txGapMs(), (unsigned)firenet::DongleLink::TX_GAP_MS,
-           (unsigned)firenet::DongleLink::TX_GAP_MIN_MS, (unsigned)firenet::DongleLink::TX_GAP_MS);
+           (unsigned)firenet::DongleLink::TX_GAP_MIN_MS, (unsigned)firenet::DongleLink::TX_GAP_MAX_MS);
   web.send(200, "application/json", buf);
 }
 
@@ -716,18 +755,67 @@ static void handleScan() {
 }
 
 // ------------------------------------------------ API compatibilité open-firenet & Home Assistant
-static const size_t LOG_MAX_BYTES = 24576;  // 24 KB (well within stable free heap margin)
-static const size_t LOG_TRIM_BYTES = 6144;  // 6 KB trimmed on overflow
-static String g_recentLogs = "";
+// Journal : tampon circulaire statique (aucune allocation, aucune copie → pas de
+// fragmentation du tas). Les lignes identiques consécutives sont regroupées en une seule
+// ligne « xN » pour qu'une rafale ne chasse pas le reste du journal.
+static const size_t LOG_RING_BYTES = 96 * 1024;
+static char     g_logRing[LOG_RING_BYTES];
+static uint64_t g_logTotal = 0;             // octets écrits depuis le boot (position absolue)
+static std::mutex g_logMx;                  // logEntry() est aussi appelé depuis des callbacks USB
+static String   g_pendKey;                  // "dir\x01msg" de la ligne en attente de regroupement
+static String   g_pendLine;                 // "[ms][dir] msg" de sa première occurrence
+static uint32_t g_pendCount = 0, g_pendLastMs = 0;
+
+static void logRingWrite(const char* p, size_t n) {
+  for (size_t i = 0; i < n; ) {
+    size_t at = (size_t)(g_logTotal % LOG_RING_BYTES);
+    size_t k = LOG_RING_BYTES - at; if (k > n - i) k = n - i;
+    memcpy(g_logRing + at, p + i, k);
+    g_logTotal += k; i += k;
+  }
+}
+static void logFlushPendingLocked() {
+  if (!g_pendCount) return;
+  logRingWrite(g_pendLine.c_str(), g_pendLine.length());
+  if (g_pendCount > 1) {
+    char t[48]; int n = snprintf(t, sizeof t, "  x%u (last=%u)", (unsigned)g_pendCount, (unsigned)g_pendLastMs);
+    logRingWrite(t, (size_t)n);
+  }
+  logRingWrite("\n", 1);
+  g_pendCount = 0;
+}
 
 static void logEntry(const char* dir, const std::string& msg) {
-  // Build the line with direct concatenation (no fixed-size buffer) so long frames
-  // (e.g. GET_SENSORS/POST_SENSORS with many fields) are never silently truncated.
-  String line = "[" + String((unsigned long)millis()) + "][" + dir + "] " + msg.c_str() + "\n";
-  if (g_recentLogs.length() > LOG_MAX_BYTES) {
-    g_recentLogs = g_recentLogs.substring(LOG_TRIM_BYTES);
-  }
-  g_recentLogs += line;
+  // Concaténation directe (pas de tampon fixe) : une longue trame n'est jamais tronquée.
+  uint32_t ms = (uint32_t)millis();
+  String key = String(dir) + "\x01" + msg.c_str();
+  std::lock_guard<std::mutex> lk(g_logMx);
+  if (g_pendCount && key == g_pendKey) { g_pendCount++; g_pendLastMs = ms; return; }
+  logFlushPendingLocked();
+  g_pendKey = key;
+  g_pendLine = "[" + String((unsigned long)ms) + "][" + dir + "] " + msg.c_str();
+  g_pendCount = 1; g_pendLastMs = ms;
+}
+
+// ── USB control-channel diagnostics (DTR/RTS, line coding) ────────────────
+// Testing hypothesis (HA community forum + issue #4): the 0x16→0x33 probe
+// loop some stoves get stuck in (firmware ~2.25-2.28) repeats identically
+// even with zero reply from the dongle, which points away from CDC *data*
+// content and toward the USB *control* transfers (SET_CONTROL_LINE_STATE /
+// SET_LINE_CODING) that nothing in this codebase has ever logged before.
+static void onUsbCdcLineState(void* arg, esp_event_base_t base, int32_t id, void* data) {
+  auto* p = (arduino_usb_cdc_event_data_t*)data;
+  char b[48];
+  snprintf(b, sizeof b, "line_state dtr=%d rts=%d", p->line_state.dtr, p->line_state.rts);
+  logEntry("usb", b);
+}
+static void onUsbCdcLineCoding(void* arg, esp_event_base_t base, int32_t id, void* data) {
+  auto* p = (arduino_usb_cdc_event_data_t*)data;
+  char b[80];
+  snprintf(b, sizeof b, "line_coding baud=%lu stop=%u parity=%u bits=%u",
+           (unsigned long)p->line_coding.bit_rate, p->line_coding.stop_bits,
+           p->line_coding.parity, p->line_coding.data_bits);
+  logEntry("usb", b);
 }
 
 static void sendCors() {
@@ -775,29 +863,38 @@ static void handleApiSensors() {
     first = false;
   };
 
-  long rTemp = (m.sensors_pos.size() > 0) ? m.sensors_pos[0] : 0;
+  long rTemp = 0, fTemp = 0, mState = 1, sState = 0;
+  long pTotal = 0, pHours = 0, sCount = 700, idFan = 0;
+  long modelId = (m.generation == 2) ? 1 : 13;
+
+  if (m.generation == 2) {
+    if (m.sensors_pos.size() > 0)  rTemp = m.sensors_pos[0];
+    if (m.sensors_pos.size() > 1)  fTemp = m.sensors_pos[1];
+    if (m.sensors_pos.size() > 4)  sCount = m.sensors_pos[4];
+    if (m.sensors_pos.size() > 7)  idFan = m.sensors_pos[7];
+    if (m.sensors_pos.size() > 9)  pHours = m.sensors_pos[9];
+    if (m.sensors_pos.size() > 11) pTotal = m.sensors_pos[11];
+  } else {
+    if (m.sensors_pos.size() > 0)  rTemp = m.sensors_pos[0];
+    if (m.sensors_pos.size() > 1)  fTemp = m.sensors_pos[1];
+    if (m.sensors_pos.size() > 9)  idFan = m.sensors_pos[9];
+    if (m.sensors_pos.size() > 31) mState = m.sensors_pos[31];
+    if (m.sensors_pos.size() > 32) sState = m.sensors_pos[32];
+    if (m.sensors_pos.size() > 36) modelId = m.sensors_pos[36];
+    if (m.sensors_pos.size() > 47) pHours = m.sensors_pos[47];
+    if (m.sensors_pos.size() > 49) pTotal = m.sensors_pos[49];
+    if (m.sensors_pos.size() > 50) sCount = m.sensors_pos[50];
+  }
+
   auto itR = m.sensors.find("roomTemp"); if (itR != m.sensors.end()) rTemp = itR->second;
-
-  long fTemp = (m.sensors_pos.size() > 1) ? m.sensors_pos[1] : 0;
   auto itF = m.sensors.find("flame"); if (itF != m.sensors.end()) fTemp = itF->second;
-
-  long mState = (m.sensors_pos.size() > 31) ? m.sensors_pos[31] : 1;
   auto itMS = m.sensors.find("mainState"); if (itMS != m.sensors.end()) mState = itMS->second;
-
-  long sState = (m.sensors_pos.size() > 32) ? m.sensors_pos[32] : 0;
   auto itSS = m.sensors.find("subState"); if (itSS != m.sensors.end()) sState = itSS->second;
-
-  long pTotal = (m.sensors_pos.size() > 49) ? m.sensors_pos[49] : 0;
   auto itPT = m.sensors.find("pelletsTotal"); if (itPT != m.sensors.end()) pTotal = itPT->second;
-
-  long pHours = (m.sensors_pos.size() > 47) ? m.sensors_pos[47] : 0;
   auto itPH = m.sensors.find("pelletHours"); if (itPH != m.sensors.end()) pHours = itPH->second;
-
-  long sCount = (m.sensors_pos.size() > 50) ? m.sensors_pos[50] : 700;
   auto itSC = m.sensors.find("serviceCountdown"); if (itSC != m.sensors.end()) sCount = itSC->second;
-
-  long idFan = (m.sensors_pos.size() > 9) ? m.sensors_pos[9] : 0;
   auto itFan = m.sensors.find("idFanMeas"); if (itFan != m.sensors.end()) idFan = itFan->second;
+  auto itMod = m.sensors.find("model"); if (itMod != m.sensors.end()) modelId = itMod->second;
 
   // Clé 'f0' essentielle pour les configurations Home Assistant (value_json.f0)
   addKV("f0", String(rTemp));
@@ -814,8 +911,6 @@ static void handleApiSensors() {
   addKV("serviceCountdownKg", String(sCount));
   addKV("idFan", String(idFan));
 
-  long modelId = (m.sensors_pos.size() > 36) ? m.sensors_pos[36] : 13;
-  auto itMod = m.sensors.find("model"); if (itMod != m.sensors.end()) modelId = itMod->second;
   addKV("model", String(modelId));
   addKV("modelName", getStoveModelName(modelId));
 
@@ -1375,10 +1470,44 @@ static void handleApiSchedule() {
   handleApiControls();
 }
 
-// GET /log (compatibilité open-firenet)
+// GET /log (compatibilité open-firenet) — envoyé par morceaux depuis le tampon circulaire.
 static void handleLog() {
   sendCors();
-  web.send(200, "text/plain", g_recentLogs.length() ? g_recentLogs : "Pas de logs recents.\n");
+  uint64_t total, pos;
+  {
+    std::lock_guard<std::mutex> lk(g_logMx);
+    logFlushPendingLocked();
+    total = g_logTotal;
+    pos = total > LOG_RING_BYTES ? total - LOG_RING_BYTES : 0;
+  }
+  char hdr[160];
+  int hn = snprintf(hdr, sizeof hdr,
+      "=== journal: uptime=%lus, %llu octets ecrits, %s, tas libre=%u (min %u) ===\n",
+      (unsigned long)(millis() / 1000), (unsigned long long)total,
+      pos ? "ANCIEN CONTENU ECRASE" : "complet depuis le boot",
+      (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMinFreeHeap());
+  web.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  web.send(200, "text/plain", "");
+  web.sendContent(hdr, (size_t)hn);
+  char chunk[1024];
+  bool first = (pos != 0);       // on peut démarrer au milieu d'une ligne : la sauter
+  while (pos < total) {
+    size_t n;
+    {
+      std::lock_guard<std::mutex> lk(g_logMx);
+      if (g_logTotal > LOG_RING_BYTES && pos < g_logTotal - LOG_RING_BYTES) pos = g_logTotal - LOG_RING_BYTES;
+      n = (size_t)(total - pos); if (n > sizeof chunk) n = sizeof chunk;
+      size_t at = (size_t)(pos % LOG_RING_BYTES);
+      if (n > LOG_RING_BYTES - at) n = LOG_RING_BYTES - at;
+      memcpy(chunk, g_logRing + at, n);
+    }
+    pos += n;
+    size_t off = 0;
+    if (first) { const char* nl = (const char*)memchr(chunk, '\n', n); off = nl ? (size_t)(nl - chunk) + 1 : n; if (nl) first = false; }
+    if (n > off) web.sendContent(chunk + off, n - off);
+  }
+  if (total == 0) web.sendContent("Pas de logs recents.\n");
+  web.sendContent("");
 }
 
 // --------------------------------------------------------------------- setup
@@ -1391,14 +1520,26 @@ void setup() {
   USB.VID(OPENFIRENET_USB_VID);
   USB.PID(OPENFIRENET_USB_PID);
   USB.manufacturerName("Open-Firenet");
-  USB.productName("Open-Firenet 2");
+  USB.productName("Open-Firenet (V1)");
   USB.serialNumber("23176212");
   STOVE.begin();                   // CDC TinyUSB vers le poêle
+  // This device stays permanently wired into the stove: the Arduino
+  // "1200-baud / DTR touch reset" watcher (on by default, reboot_enable=true
+  // in USBCDC) serves no purpose here, and an unexpected DTR/RTS sequence
+  // from the stove's USB driver could trigger it by accident -- silently
+  // dropping the ESP32 into the bootloader mid-handshake, which would look
+  // exactly like an infinite probe loop from the stove's side.
+  STOVE.enableReboot(false);
+  STOVE.onEvent(ARDUINO_USB_CDC_LINE_STATE_EVENT, onUsbCdcLineState);
+  STOVE.onEvent(ARDUINO_USB_CDC_LINE_CODING_EVENT, onUsbCdcLineCoding);
   USB.begin();
 
   g_link = new firenet::DongleLink(txToStove, nowMs);
   g_link->onDebug([](const char* dir, const std::string& f){
-    if (strcmp(dir, "drop") == 0) return;    // trace rx AND tx (frame diagnostics)
+    if (strcmp(dir, "drop") == 0) {
+      logEntry("drop", f);
+      return;
+    }
     std::string safe = firenet::sanitizeForLog(f);
     DBG.printf("[%s %u] ", dir, (unsigned)safe.size());
     for (char c : safe) { if (c=='\n') DBG.print("\\n"); else if (c=='\r') DBG.print("\\r");
@@ -1414,6 +1555,7 @@ void setup() {
   prefs.end();
 
   if (wifiSsid.length()) {
+    g_link->setCredentials(wifiSsid.c_str(), wifiPass.c_str());
     g_isApMode = false;
     g_staStart = millis();
     // Connexion STA robuste — méthode open-firenet (fonctionne en coexistence USB
@@ -1429,6 +1571,11 @@ void setup() {
       else if (e == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
         g_staConnected = true;
         DBG.printf("[wifi] GOT_IP %s\n", WiFi.localIP().toString().c_str());
+        g_link->setCredentials(wifiSsid.c_str(), wifiPass.c_str(),
+                               WiFi.localIP().toString().c_str(), WiFi.macAddress().c_str());
+        if (g_link->model().version_ack) {
+          g_link->pushStatus();
+        }
       }
     });
     WiFi.setTxPower(WIFI_POWER_17dBm);
@@ -1567,20 +1714,39 @@ void loop() {
     lastPoll = millis();
     if (WiFi.status() == WL_CONNECTED) g_link->setRssi(WiFi.RSSI());  // RSSI réel (§7.4)
 
-    static bool controlsRegistered = false;
-    if (g_link->model().sensors_pos.size() < 50) {
-      // Phase 1 : enregistrer la table complète de 53 capteurs dans le poêle
-      g_link->pollSensors(SENSOR_NAMES);
-    } else if (!controlsRegistered) {
-      // Phase 2 : enregistrer la table des controls
-      g_link->pollControls(CONTROL_NAMES);
-      controlsRegistered = true;
+    if (g_link->induoDialect()) {
+      // INDUO family (V1 = 2.26/2.27, and a detected INDUO II 2.28): names registered once, status every ~20s.
+      // Keyed on induoDialect(), not generation: a detected 2.28 has generation 1 (DOMO tables) but must not run
+      // the DOMO loop below, whose phase 3 re-sends the full status every 2s.
+      static uint32_t v1Cycle = 0;
+      v1Cycle++;
+      if (v1Cycle % 10 == 0) {
+        // About every 20 s: refresh the status. The PRIO 2 records arrive by themselves at every 30th
+        // GET_REVISION; pollPrio2Sensors() sends nothing (a GET_SENSORS frame would empty the registered names).
+        g_link->pollPrio2Sensors();
+        g_link->requestStatus();
+      } else {
+        // Routine (toutes les 2s) : PRIO 1 capteurs + contrôles
+        g_link->pollSensors();
+        g_link->pollControls();
+      }
     } else {
-      // Phase 3 : routine d'interrogation cadencée
-      g_link->requestStatus();
-      g_link->sendRevision();
-      g_link->transferCompleted();
-      g_link->transferCompleted();
+      // V3 (DOMO V2.29+) : enregistrement préalable des sentinelles
+      static bool controlsRegistered = false;
+      if (g_link->model().sensors_pos.size() < 50) {
+        // Phase 1 : enregistrer la table complète de 53 capteurs dans le poêle
+        g_link->pollSensors(SENSOR_NAMES);
+      } else if (!controlsRegistered) {
+        // Phase 2 : enregistrer la table des controls
+        g_link->pollControls(CONTROL_NAMES);
+        controlsRegistered = true;
+      } else {
+        // Phase 3 : routine d'interrogation cadencée
+        g_link->requestStatus();
+        g_link->sendRevision();
+        g_link->transferCompleted();
+        g_link->transferCompleted();
+      }
     }
   }
 #endif

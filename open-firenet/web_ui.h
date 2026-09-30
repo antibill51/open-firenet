@@ -998,9 +998,9 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
     <div class="card" style="padding:14px;gap:10px">
       <div style="font-size:0.85rem" id="lblTxGap">Délai entre trames vers le poêle</div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <input type="range" id="txGap" min="50" max="600" step="50" value="600" style="flex:1;min-width:160px">
+        <input type="range" id="txGap" min="50" max="600" step="50" value="150" style="flex:1;min-width:160px">
         <span><b id="txGapVal">600</b> ms</span>
-        <button class="btn-lang" id="btnTxGapDefault" style="padding:4px 10px;font-size:0.8rem" onclick="setTxGap(600)">Défaut (600)</button>
+        <button class="btn-lang" id="btnTxGapDefault" style="padding:4px 10px;font-size:0.8rem" onclick="setTxGap(150)">Défaut (150)</button>
       </div>
       <div style="font-size:0.75rem;color:var(--text-dim)" id="lblTxGapHelp">Appliqué immédiatement et conservé après redémarrage. Trop bas : le poêle peut ne traiter qu'une trame sur deux.</div>
     </div>
@@ -1114,7 +1114,7 @@ const I18N = {
     logRx: "Poêle → Clef (RX)",
     logTx: "Clef → Poêle (TX)",
     txGapTitle: "Délai entre trames vers le poêle",
-    txGapDefault: "Défaut (600)",
+    txGapDefault: "Défaut (150)",
     txGapHelp: "Appliqué immédiatement et conservé après redémarrage. Trop bas : le poêle peut ne traiter qu'une trame sur deux.",
     logAuto: "Auto",
     logDownload: "⬇ Télécharger",
@@ -1199,6 +1199,9 @@ const I18N = {
       errSub: "Code sous-erreur active",
       serviceOffset: "Décalage compteur révision",
       serviceMinutes: "Minutes totales écoulées révision",
+      statusWarning: "Avertissements actifs (masque)",
+      airFlaps: "Volets d'air (%)",
+      airFlapsTarget: "Consigne volets d'air (%)",
       ignitionCount: "Nombre d'allumages",
       onOffCycles: "Cycles marche/arrêt",
       hopperLidClosed: "Trappe réservoir pellets fermée",
@@ -1298,7 +1301,7 @@ const I18N = {
     logRx: "Stove → Dongle (RX)",
     logTx: "Dongle → Stove (TX)",
     txGapTitle: "Delay between frames sent to the stove",
-    txGapDefault: "Default (600)",
+    txGapDefault: "Default (150)",
     txGapHelp: "Applied immediately and kept after a reboot. Too low: the stove may only process one frame out of two.",
     logAuto: "Auto",
     logDownload: "⬇ Download",
@@ -1383,6 +1386,9 @@ const I18N = {
       errSub: "Active error subcode",
       serviceOffset: "Service counter offset",
       serviceMinutes: "Total elapsed service minutes",
+      statusWarning: "Active warnings (bitmask)",
+      airFlaps: "Air flaps (%)",
+      airFlapsTarget: "Air flaps target (%)",
       ignitionCount: "Total ignition count",
       onOffCycles: "Total on/off cycles",
       hopperLidClosed: "Pellet hopper lid closed",
@@ -1482,7 +1488,7 @@ const I18N = {
     logRx: "Ofen → Dongle (RX)",
     logTx: "Dongle → Ofen (TX)",
     txGapTitle: "Abstand zwischen Frames zum Ofen",
-    txGapDefault: "Standard (600)",
+    txGapDefault: "Standard (150)",
     txGapHelp: "Sofort wirksam und nach einem Neustart erhalten. Zu niedrig: Der Ofen verarbeitet eventuell nur jeden zweiten Frame.",
     logAuto: "Auto",
     logDownload: "⬇ Herunterladen",
@@ -1567,6 +1573,9 @@ const I18N = {
       errSub: "Aktiver Fehler-Untercode",
       serviceOffset: "Wartungszähler-Offset",
       serviceMinutes: "Gesamte vergangene Wartungsminuten",
+      statusWarning: "Aktive Warnungen (Bitmaske)",
+      airFlaps: "Luftklappen (%)",
+      airFlapsTarget: "Luftklappen Sollwert (%)",
       ignitionCount: "Anzahl Zündungen gesamt",
       onOffCycles: "Anzahl Ein/Aus-Zyklen gesamt",
       hopperLidClosed: "Pelletbehälter-Deckel geschlossen",
@@ -2283,7 +2292,8 @@ function renderSensors(sObj, filterText) {
     const label = (t.sensorDesc && t.sensorDesc[k]) ? t.sensorDesc[k] : k;
     if (f && !k.toLowerCase().includes(f) && !label.toLowerCase().includes(f)) continue;
     let v = sObj[k];
-    if (k === 'roomTemp') v = (v / 10).toFixed(1) + ' °C';
+    if (k === 'roomTemp') v = (v === 1024) ? '--' : (v / 10).toFixed(1) + ' °C';   // 1024 = no room sensor
+    else if (k === 'airFlaps' || k === 'airFlapsTarget') v = (v / 10).toFixed(1) + ' %';
     else if (k === 'flame' || k === 'boardSensor') v = v + ' °C';
     else if (k === 'pelletsTotal' || k === 'serviceCountdown') v = v + ' kg';
     else if (k === 'pelletHours') v = v + ' h';
@@ -2355,7 +2365,10 @@ async function tick() {
     }
 
     // Room Temp
-    if (sens.room_temperature !== undefined) {
+    if (sens.room_temperature === null) {
+      // no RIKA room sensor connected (the stove reports 1024)
+      document.getElementById('roomTemp').textContent = '--';
+    } else if (sens.room_temperature !== undefined) {
       document.getElementById('roomTemp').textContent = sens.room_temperature.toLocaleString(bcpLanguageTag, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
     } else if (rawS.roomTemp !== undefined) {
       document.getElementById('roomTemp').textContent = (rawS.roomTemp / 10).toLocaleString(bcpLanguageTag, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -2565,7 +2578,7 @@ async function tick() {
     document.getElementById('cdcOut').textContent = s.frames_out;
     document.getElementById('cdcState').textContent = t.cdcSpeed;
     document.getElementById('cdcAck').textContent = s.version_ack ? t.yes : t.no;
-    document.getElementById('cdcGen').textContent = s.generation ? s.generation : '--';
+    document.getElementById('cdcGen').textContent = (s.generation ? s.generation : '--') + (s.version_frame && s.version_frame !== '?' ? ' (' + s.version_frame + ')' : '');
     const upSec = (s.uptime_seconds !== undefined) ? s.uptime_seconds : ((s.device && s.device.uptime_seconds !== undefined) ? s.device.uptime_seconds : rawS.uptime);
     const upStr = formatUptime(upSec);
     const elUptime = document.getElementById('dongleUptime');
