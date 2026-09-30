@@ -1,6 +1,6 @@
 # Changelog
 
-## Non publié
+## v3.0.0 (2026-10-01)
 
 ### Features
 - Support for stoves running mainboard firmware 2.26 / 2.27 (e.g. INDUO): the link comes up and every stove value is read. On these stoves, on/off, mode, heating power and target temperature can be changed; the other settings (schedule, MultiAir, frost protection, offset) are read-only for now. Stoves on firmware 2.28 are detected but not supported yet.

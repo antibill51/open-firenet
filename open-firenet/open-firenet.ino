@@ -33,7 +33,7 @@ USBCDC USBSerial;
 
 // --------------------------------------------------------- version & config USB
 #ifndef OPENFIRENET_VERSION
-#define OPENFIRENET_VERSION "2.5.0"
+#define OPENFIRENET_VERSION "3.0.0"
 #endif
 
 // Identifiants USB Open-Firenet
