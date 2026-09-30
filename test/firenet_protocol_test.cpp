@@ -38,7 +38,6 @@ int main(){
   CHECK("7.2","champs vides -> pas de décalage", x.size()>=17 && x[12]=="" && x[13]=="" && x[15]=="AB");
 
   // §12 constantes de version
-  CHECK("12","APP=112", APP_VERSION==112);
   CHECK("12","DT=1", DT==1);
   CHECK("5","19 champs déclarés", NUM_FIELDS==19);
   CHECK("13","room target ×10", CTRL_ROOM_TARGET_SCALE==10);

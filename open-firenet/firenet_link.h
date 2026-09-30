@@ -685,11 +685,6 @@ private:
     txq_.pop_front();
     last_tx_ms_ = now_();
   }
-  // buffers pour les entiers de version (snprintf-safe)
-  const char* itoaBL()  { snprintf(bBL_,8,"%d",BL_VERSION);  return bBL_; }
-  const char* itoaAPP() { snprintf(bAPP_,8,"%d",APP_VERSION);return bAPP_;}
-  const char* itoaREV() { snprintf(bREV_,8,"%d",APP_REVISION);return bREV_;}
-  char bBL_[8], bAPP_[8], bREV_[8];
 
   void dispatch(const std::string& buf) {
     model_.frames_in++;
