@@ -289,7 +289,7 @@ Open-Firenet V2 provides a clean, unified REST JSON API with natural units (temp
 {
   "device": {
     "name": "Open-Firenet",
-    "version": "2.5.0",
+    "version": "x.y.z",
     "ip": "192.168.1.93",
     "mac": "34:85:18:XX:XX:XX",
     "wifi_ssid": "MyWiFi",
