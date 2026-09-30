@@ -875,6 +875,20 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
       </div>
 
       <div class="multiair-grid">
+        <!-- Eco mode (official control ecoMode) -->
+        <div class="fan-card" id="ecoCard" style="padding:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div style="display:flex;align-items:center;gap:8px;font-weight:700">
+              <span style="font-size:1.2rem">🌿</span> <span id="lblEcoToggle">Mode éco</span>
+            </div>
+            <button class="fan-toggle" id="ecoToggleBtn" onclick="toggleEco()">
+              <span class="dot" style="display:inline-block"></span>
+              <span id="ecoToggleText">Arrêt</span>
+            </button>
+          </div>
+          <div id="ecoHint" style="margin-top:10px;font-size:0.8rem;color:var(--text-muted);display:none"></div>
+        </div>
+
         <!-- Frost Protection (Hors-Gel) -->
         <div class="fan-card" id="frostCard" style="padding:16px">
           <div style="display:flex;justify-content:space-between;align-items:center">
@@ -1088,6 +1102,9 @@ const I18N = {
     btnApplyFrostTemp: "Appliquer hors-gel",
     frostOn: "Actif",
     frostOff: "Arrêt",
+    ecoToggle: "Mode éco",
+    ecoUnavailable: "Non disponible sur ce poêle.",
+    ecoReadOnly: "Lecture seule sur ce firmware de poêle.",
     bakeTitle: "FOUR DE CUISSON (DOMO BACK)",
     bakeSubTitle: "Consigne de cuisson",
     bakeTemp: "Température du four",
@@ -1275,6 +1292,9 @@ const I18N = {
     btnApplyFrostTemp: "Apply frost temp",
     frostOn: "Active",
     frostOff: "Off",
+    ecoToggle: "Eco mode",
+    ecoUnavailable: "Not available on this stove.",
+    ecoReadOnly: "Read-only on this stove firmware.",
     bakeTitle: "BAKING OVEN (DOMO BACK)",
     bakeSubTitle: "Baking setpoint",
     bakeTemp: "Oven temperature",
@@ -1462,6 +1482,9 @@ const I18N = {
     btnApplyFrostTemp: "Frostschutz übernehmen",
     frostOn: "Aktiv",
     frostOff: "Aus",
+    ecoToggle: "Eco-Modus",
+    ecoUnavailable: "Auf diesem Ofen nicht verfügbar.",
+    ecoReadOnly: "Bei dieser Ofen-Firmware nur lesbar.",
     bakeTitle: "BACKOFEN (DOMO BACK)",
     bakeSubTitle: "Backtemperatur-Sollwert",
     bakeTemp: "Backofentemperatur",
@@ -1638,6 +1661,7 @@ function applyLang() {
   if (document.getElementById('f2Lvl0')) document.getElementById('f2Lvl0').textContent = t.fanAuto;
   if (document.getElementById('lblFrostTitle')) document.getElementById('lblFrostTitle').textContent = t.frostTitle;
   if (document.getElementById('lblFrostToggle')) document.getElementById('lblFrostToggle').textContent = t.frostToggle;
+  if (document.getElementById('lblEcoToggle')) document.getElementById('lblEcoToggle').textContent = t.ecoToggle;
   if (document.getElementById('lblFrostTemp')) document.getElementById('lblFrostTemp').textContent = t.frostTemp;
   if (document.getElementById('btnApplyFrostTemp')) document.getElementById('btnApplyFrostTemp').textContent = t.btnApplyFrostTemp;
   if (document.getElementById('lblBakeTitle')) document.getElementById('lblBakeTitle').textContent = t.bakeTitle;
@@ -1933,6 +1957,18 @@ function applyFanArea(n) {
   } else {
     sendControl("convectionFan2Area", val);
   }
+}
+
+// Eco mode can only be changed when the stove allows it (sensor ecoModePossible) and on firmware 2.29 / 2.28:
+// on 2.26 / 2.27 (version frame "V1") the bridge only sends the five basic settings.
+function ecoEditable(s) {
+  const ctrl = (s && s.controls) || {};
+  return ctrl.eco_mode_possible === true && s.version_frame !== 'V1';
+}
+function toggleEco() {
+  if (!lastState || !ecoEditable(lastState)) return;
+  const ctrl = lastState.controls || {};
+  sendControl("ecoMode", ctrl.eco_mode ? 0 : 1);
 }
 
 function toggleFrost() {
@@ -2509,6 +2545,24 @@ async function tick() {
           if (r2) r2.value = f2Area;
           if (v2) v2.textContent = (f2Area > 0 ? '+' : '') + f2Area;
         }
+      }
+    }
+
+    // Eco mode
+    const btnEco = document.getElementById('ecoToggleBtn');
+    const txtEco = document.getElementById('ecoToggleText');
+    const hintEco = document.getElementById('ecoHint');
+    if (btnEco && txtEco) {
+      const ecoOn = ctrl.eco_mode === true;
+      const editable = ecoEditable(s);
+      btnEco.className = ecoOn ? 'fan-toggle active' : 'fan-toggle';
+      btnEco.disabled = !editable;
+      btnEco.style.opacity = editable ? '' : '0.5';
+      txtEco.textContent = ecoOn ? t.frostOn : t.frostOff;
+      if (hintEco) {
+        const msg = editable ? '' : (ctrl.eco_mode_possible === true ? t.ecoReadOnly : t.ecoUnavailable);
+        hintEco.textContent = msg;
+        hintEco.style.display = msg ? 'block' : 'none';
       }
     }
 

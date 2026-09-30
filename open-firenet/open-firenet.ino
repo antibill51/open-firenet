@@ -1290,6 +1290,8 @@ static void handleApiControls() {
       float f = v.toFloat();
       if (f > -4.5f && f < 4.5f && f != (long)f) newTempOffset = (long)round(f * 10.0f);
       else newTempOffset = (long)round(f);
+    } else if (n == "ecoMode" || n == "eco_mode") {
+      newEcoMode = (v == "true" || v == "1") ? 1 : 0;
     } else if (n == "heatingTimesActive" || n == "scheduleActive") {
       newHeatingTimesActive = (v == "true" || v == "1") ? 1 : 0;
     } else if (n == "setBackTemp" || n == "setback_temperature" || n == "setbackTemp" || n == "tempEco") {
