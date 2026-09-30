@@ -775,7 +775,10 @@ const I18N = {
       errMask32: "Masque erreurs 32 bits",
       errSub: "Code sous-erreur active",
       serviceOffset: "Décalage compteur révision",
-      serviceMinutes: "Minutes totales écoulées révision"
+      serviceMinutes: "Minutes totales écoulées révision",
+      statusWarning: "Avertissements actifs (masque)",
+      airFlaps: "Volets d'air (%)",
+      airFlapsTarget: "Consigne volets d'air (%)"
     }
   },
   en: {
@@ -898,7 +901,10 @@ const I18N = {
       errMask32: "Active error bitmask (32 bits)",
       errSub: "Active error subcode",
       serviceOffset: "Service counter offset",
-      serviceMinutes: "Total elapsed service minutes"
+      serviceMinutes: "Total elapsed service minutes",
+      statusWarning: "Active warnings (bitmask)",
+      airFlaps: "Air flaps (%)",
+      airFlapsTarget: "Air flaps target (%)"
     }
   }
 };
@@ -1212,7 +1218,8 @@ function renderSensors(sObj, filterText) {
     const label = (t.sensorDesc && t.sensorDesc[k]) ? t.sensorDesc[k] : k;
     if (f && !k.toLowerCase().includes(f) && !label.toLowerCase().includes(f)) continue;
     let v = sObj[k];
-    if (k === 'roomTemp') v = (v / 10).toFixed(1) + ' °C';
+    if (k === 'roomTemp') v = (v === 1024) ? '--' : (v / 10).toFixed(1) + ' °C';   // 1024 = no room sensor
+    else if (k === 'airFlaps' || k === 'airFlapsTarget') v = (v / 10).toFixed(1) + ' %';
     else if (k === 'flame' || k === 'boardSensor') v = v + ' °C';
     else if (k === 'pelletsTotal' || k === 'serviceCountdown') v = v + ' kg';
     else if (k === 'pelletHours') v = v + ' h';
@@ -1279,7 +1286,10 @@ async function tick() {
     }
 
     // Room Temp
-    if (sens.room_temperature !== undefined) {
+    if (sens.room_temperature === null) {
+      // no RIKA room sensor connected (the stove reports 1024)
+      document.getElementById('roomTemp').textContent = '--';
+    } else if (sens.room_temperature !== undefined) {
       document.getElementById('roomTemp').textContent = sens.room_temperature.toFixed(1);
     } else if (rawS.roomTemp !== undefined) {
       document.getElementById('roomTemp').textContent = (rawS.roomTemp / 10).toFixed(1);

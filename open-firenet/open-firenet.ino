@@ -260,6 +260,20 @@ static String jsonState() {
   auto itAV = m.sensors.find("appVerBoard"); if (itAV != m.sensors.end()) appVer = itAV->second;
   auto itBV = m.sensors.find("firmwareBuild"); if (itBV != m.sensors.end()) buildVer = itBV->second;
 
+  // Warning bitmask and air flaps (official record names statusWarning / outputAirFlaps / outputAirFlapsTargetPosition).
+  // Air flap values are tenths of a percent (the Rika cloud integrations divide them by 10). A missing record, e.g. on a
+  // stove whose names are not registered yet, is published as null.
+  long warnCode = 0;
+  auto itW = m.sensors.find("statusWarning"); if (itW != m.sensors.end()) warnCode = itW->second;
+  char airFlapsS[16] = "null", airFlapsTgtS[16] = "null";
+  auto itAF = m.sensors.find("airFlaps");
+  if (itAF != m.sensors.end()) snprintf(airFlapsS, sizeof airFlapsS, "%.1f", itAF->second / 10.0f);
+  auto itAT = m.sensors.find("airFlapsTarget");
+  if (itAT != m.sensors.end()) snprintf(airFlapsTgtS, sizeof airFlapsTgtS, "%.1f", itAT->second / 10.0f);
+  // Without a RIKA room sensor the stove reports the constant 1024 (0x400) as room temperature (read in the 2.27
+  // disassembly: record 0 is set to 0x400 when no sensor is present); publish null instead of 102.4 °C.
+  bool roomSensor = (rTemp != 1024);
+
   const char* modelName = getStoveModelName(modelId);
 
   long curOn = 0, curMode = 2, curStage = 70, curRoom = 200;
@@ -302,7 +316,10 @@ static String jsonState() {
   float fTempF = (float)fTemp;
   float bTempF = (float)bTemp;
 
-  char buf[1400];
+  char roomTempS[16] = "null";
+  if (roomSensor) snprintf(roomTempS, sizeof roomTempS, "%.1f", rTempF);
+
+  char buf[1600];
   snprintf(buf, sizeof(buf),
     "{"
     "\"device\":{"
@@ -325,20 +342,24 @@ static String jsonState() {
       "\"has_error\":%s,"
       "\"error_code\":%ld,"
       "\"error_sub\":%ld,"
+      "\"warning_code\":%ld,"
       "\"model\":%ld,"
       "\"model_name\":\"%s\","
       "\"mainboard_version\":\"%ld.%02ld\","
       "\"firmware_build\":\"%ld\""
     "},"
     "\"sensors\":{"
-      "\"room_temperature\":%.1f,"
+      "\"room_temperature\":%s,"
+      "\"room_sensor_connected\":%s,"
       "\"combustion_temperature\":%.1f,"
       "\"board_temperature\":%.1f,"
       "\"pellets_total_kg\":%ld,"
       "\"pellet_hours\":%ld,"
       "\"service_countdown_kg\":%ld,"
       "\"fan_speed_rpm\":%ld,"
-      "\"auger_speed_rpm\":%ld"
+      "\"auger_speed_rpm\":%ld,"
+      "\"air_flaps_percent\":%s,"
+      "\"air_flaps_target_percent\":%s"
     "},"
     "\"controls\":{"
       "\"on\":%s,"
@@ -357,9 +378,10 @@ static String jsonState() {
     stName, mainSt, stLabel, sState,
     isBurning ? "true" : "false",
     errMask != 0 ? "true" : "false",
-    errMask, errSub,
+    errMask, errSub, warnCode,
     modelId, modelName, appVer / 100, appVer % 100, buildVer,
-    rTempF, fTempF, bTempF, pTotal, pHours, sCount, idFan, auger,
+    roomTempS, roomSensor ? "true" : "false", fTempF, bTempF, pTotal, pHours, sCount, idFan, auger,
+    airFlapsS, airFlapsTgtS,
     (curOn == 1) ? "true" : "false",
     modeName, curMode, rTargetF, curStage
   );
