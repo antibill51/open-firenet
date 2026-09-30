@@ -1,8 +1,9 @@
 # RIKA Firenet 2.0 — USB CDC Protocol
 
 Reverse-engineered protocol for the RIKA Firenet 2.0 WiFi dongle, as understood from
-live testing against a real stove (RIKA DOMO, firmware V2.29.585.12) and analysis of
-the official firmware.
+live testing against real stoves (RIKA DOMO, mainboard firmware 2.29; RIKA INDUO,
+firmware 2.26 and 2.27) and the disassembly of the stove firmware (INDUO 2.27,
+INDUO II 2.28, DOMO 2.29) and of the official dongle firmware.
 
 This document describes the protocol as we understand it — the wire format, the
 message flow, and the behaviours you must reproduce for a stove to accept a
@@ -32,48 +33,47 @@ Two low-level details matter and are easy to get wrong:
 
 ## Handshake sequence
 
-### 1. USB reset probe (stove-initiated)
+### 1. USB reset probe and version frame
 
 The stove repeatedly sends a short probe — `0x16` (SYN) followed by an ASCII digit —
-roughly every 100 ms until the dongle answers acceptably.
+until the dongle answers with a version frame. The probe is the same on every stove
+generation, so it does not tell which frame to send.
 
-There are **two** version replies; recent and older stoves accept different ones. A
-recent stove accepts the `V3` frame, an older one the `V1` frame:
+Three version frames exist; what decides is the **mainboard firmware version**, not the
+stove model:
 
-**V3 (recent stoves):**
-```
-GET_CDCDEVICE3_VERSION=0; BL=999; APP=201; REV=12201; DT=3;
-```
+| Stove firmware | Version frame sent by the dongle | Stove reply |
+|---|---|---|
+| 2.29 (e.g. DOMO) | `GET_CDCDEVICE3_VERSION=0; BL=999; APP=201; REV=12201; DT=3; ` | `GET_CDCDEVICE_VERSION_FINISHED` |
+| 2.28 (e.g. INDUO II, SONO) | `GET_CDCDEVICE_VERSION=0; BL=101; APP=112; REV=13301; DT=1; ` | `GET_CDCDEVICE_VERSION_FINISHED` |
+| 2.26 / 2.27 (e.g. INDUO) | `GET_WIFI_VERSION_GET_CDCDEVICE_VERSION=0; BL=101; APP=111; REV=360; DT=1; ` | `GET_WIFI_VERSION_FINISHED` |
 
-**V1 (older stoves, e.g. INDUO V2.26 / V2.27):**
-```
-GET_WIFI_VERSION=0; BL=101; APP=112; REV=360; 
-```
+Rules read in the stove firmware, and why the order matters:
 
-**Expected stove response:**
-- Recent stoves (V3): `GET_CDCDEVICE_VERSION_FINISHED`
-- Older stoves (V1): `GET_WIFI_VERSION_FINISHED`
+- The stove replies `*_FINISHED` **before** it validates the version, so the reply does
+  not mean the frame was accepted.
+- 2.26 / 2.27 accept only `APP=111`, 2.28 only `APP=112` (or `APP=1` with `DT=2`); any
+  other value sends the stove into its "offline update" state (screen "Firenet UPDATE",
+  replies `02 30 03` to everything). 2.29 does not reject on `BL`/`APP`/`REV`.
+- 2.26 / 2.27 know no `GET_CDCDEVICE*` command at all: the 2.28 frame (no
+  `GET_WIFI_VERSION` in it) falls through their command decoder without effect.
+- 2.28 recognises both `GET_WIFI_VERSION=0` and `GET_CDCDEVICE_VERSION`: it must get the
+  2.28 frame before the 2.26/2.27 one, whose `APP=111` it would reject.
 
-Note the differences in the V1 frame: it uses `GET_WIFI_VERSION=0; ` without `DT` and without `GET_CDCDEVICE`.
-Older stoves (INDUO) strictly expect `APP=112` (validated by `FUN_800375a0`).
-
-`BL` / `APP` / `REV` are the dongle's own firmware version numbers. These values do
-**not** decide whether the handshake is accepted — a DOMO 2.29 finishes with `BL=112`
-and `BL=999` alike. Their real use is the firmware-update check (a high `BL` such as
-`999` tells the stove/cloud the dongle is up to date, so it never pushes an OTA onto it).
-
-**Which frame does a given stove accept?** The stove decides. Recent models (e.g. DOMO
-2.29) finish on the `V3` frame; older models (e.g. Induo) have been observed to reject
-it and keep re-sending the probe. The firmware therefore **alternates** the two frames
-until the stove acknowledges with any `*_FINISHED`, then locks onto the winning frame
-(and its `DT`) for the session.
+Open-Firenet therefore probes 2.29 → 2.28 → 2.26/2.27, about 3 s each, one frame at a
+time, and keeps the first one acknowledged. After a link reset it tries the family that
+worked first. `version_frame` in `/api/state` reports it (`V3`, `V28`, `V1`).
 
 ### 2. Announcement (Status Handshake)
 
-- **Recent stoves (V3):** The stove pushes an initial `POST_CDCDEVICE_STATUS`.
+- **2.29:** The stove pushes an initial `POST_CDCDEVICE_STATUS`.
   The dongle answers with a `GET_CDCDEVICE_STATUS` carrying blank credentials while unprovisioned, or full credentials once connected.
-- **Older stoves (V1, INDUO):** The dongle must immediately push `GET_FIRENET_STATUS=0;\n` with 19 fields upon receiving `GET_WIFI_VERSION_FINISHED`.
-  This is required to set the stove's internal SRAM flags (`*0x57e5`, `*0x57e2`, `*0x57e6 = 1`). If this is omitted, the stove silently ignores all subsequent commands. The stove responds with `POST_FIRENET_STATUS=0;\n` (19 fields).
+- **2.26 / 2.27 (and 2.28):** The dongle must push `GET_FIRENET_STATUS=0;\n` (19 fields)
+  right after the version reply. The stove decodes no command before this status is
+  accepted; the link is then decided at the next `TRANSFER_COMPLETED`. The **id must be
+  exactly 8 digits and the token 8 printable characters**, otherwise the stove raises
+  error **UW27**. A stove that is never linked raises **UW29** after about 24 attempts.
+  A bare `POST_FIRENET_STATUS` is a request the stove always answers with its own status.
 
 ### 3. Main loop
 
@@ -150,6 +150,22 @@ response slots are never armed and `TRANSFER_COMPLETED` returns nothing. The sto
 ignores the `revision=` and `frequency=` values themselves; only the presence of the
 command matters.
 
+**2.26 / 2.27 / 2.28 (read in the stove firmware and confirmed on real 2.26 / 2.27
+stoves):**
+
+- A `GET_SENSORS` or `GET_CONTROLS` frame **replaces** the list of registered names; a
+  frame without names empties it. The names are therefore registered **once** after the
+  handshake (flag `0` = "send everything once"), then each cycle only sends
+  `GET_REVISION` + `TRANSFER_COMPLETED`.
+- The stove prepares its data in the `GET_REVISION` handler and emits one `POST_*` per
+  `TRANSFER_COMPLETED` (controls first). It only re-sends records whose value changed;
+  a full refresh of all sensors comes every 30th `GET_REVISION`.
+- A stove idling in standby can thus stay silent for more than a minute: Open-Firenet
+  sends a bare `POST_FIRENET_STATUS` every ~20 s, which the stove always answers, so its
+  own 60 s "no data" watchdog does not restart the link.
+- Command frames (`GET_CONTROLS=1; ...`) also replace the registered control names: the
+  names are registered again at the next poll.
+
 ---
 
 ## GET_CONTROLS / POST_CONTROLS
@@ -185,8 +201,8 @@ may lag what was just written.
 | 2 | mode | 0–3 | 0 = Manual, 1 = Auto/thermostat, 2 = Comfort, 3 = Setback |
 | 3 | targetStage | 30–100 | heating power, % |
 | 4 | roomTarget | 140–280 | room target ×10 (210 = 21.0 °C) |
-| 5 | bakeTarget | 130–340 | bake target temperature, °C (DOMO BACK model 23) |
-| 6 | (reserved) | — | reserved control slot |
+| 5 | bakeTarget | 130–340 | bake target temperature, °C (DOMO BACK model 23) — official `bakeTemperature` |
+| 6 | ecoMode | 0 / 1 | eco mode — official `ecoMode`; only settable when sensor `ecoModePossible` is 1 |
 | 7 | heatTimeMon1 | 0, decimal | Monday slot 1 (start/end encoded as integer) |
 | 8 | heatTimeMon2 | 0, decimal | Monday slot 2 |
 | 9 | heatTimeTue1 | 0, decimal | Tuesday slot 1 |
@@ -212,7 +228,17 @@ may lag what was just written.
 | 29 | frostProtectionActive | 0 / 1 | Frost protection enabled (`0` = Off, `1` = On) |
 | 30 | frostProtectionTemp | 40–100 | Frost protection target temp ×10 (40–100 = 4.0–10.0 °C, default 50 = 5.0 °C) |
 | 31 | roomTempOffset | -40 to +40 | Room temperature sensor calibration offset ×10 (-4.0 °C to +4.0 °C) |
-| 32 | roomSensorPower | — | Room sensor power mode |
+| 32 | roomSensorPower | — | official `RoomPowerRequest` |
+| 33–37 | debug0 … debug4 | — | official `debug0` … `debug4`, the same variables as sensors 83–87 |
+
+The names are the official ones of the RIKA cloud `controls` object, in the same order
+(`operatingMode` = mode, `heatingPower` = targetStage, `targetTemperature` = roomTarget,
+`heatingTimesActiveForComfort`, `setBackTemperature`, `temperatureOffset`...).
+
+**2.26 / 2.27:** the table has no `bakeTarget` record: position *p* is position *p* above
+for *p* < 5 and *p* + 1 from 5 on (records 0–36). Because the stove stores the *k*-th
+value of a `GET_CONTROLS=1` frame in its record *k*, Open-Firenet only sends the
+five-field frame (revision, onOff, mode, targetStage, roomTarget) to these stoves.
 
 ### Heating Schedule Slot Encoding
 
@@ -249,13 +275,14 @@ GET_SENSORS=0; s0=0; s1=0; s2=0; ... s52=0;
 
 Consequences:
 
-- The **names are your choice** and are ignored by the stove — only the **position**
-  matters. `s0` maps to slot 0, `s1` to slot 1, and so on.
+- The **names are your choice** — only the **position** matters. The *k*-th name is
+  stored as the label of slot *k* (a 32-byte field, copied without a length check:
+  keep names under 32 characters) and echoed back with its value.
 - If you register **N** names you get slots **0 … N-1** and nothing else. Register only
   a handful and the high-index counters are never emitted — they are not “missing”, the
   stove was never asked for them.
 - To read the cumulative counters (pellet hours, total consumption, service countdown),
-  you **must register names up to at least index 52**. There is no way to address slot
+  you **must register names up to at least index 52** (Open-Firenet registers all 88). There is no way to address slot
   47 without also naming 0…46 — the mapping always starts at 0.
 
 A nameless / near-empty `GET_SENSORS` therefore returns just slot 0 (room temperature).
@@ -275,83 +302,89 @@ frame is accepted intact and all 53 slots come back. This applies to any large f
 (The official firmware achieves the same effect by writing each field followed by a
 flush.)
 
-### Sensor table (positional)
+### Sensor table
 
-Values below were read live from a DOMO and matched against the stove's own screen —
-room temperature, flame, pellet hours, total consumption, service countdown, model and
-firmware versions are confirmed; unlabelled slots read `0` in standby.
+The official key does not hold the sensor names: it fetches them from the RIKA server
+and registers them with the stove, so the order of the RIKA cloud `sensors` object is
+the slot order. A full cloud dump in its natural order lines up position by position with
+every slot previously identified here (live tests) and in the stove firmware. Open-Firenet
+uses shorter names on the wire (some official names are longer than the stove's 32-byte
+name field, and 88 long names would not fit the stove's 2048-byte receive buffer); the
+official name is given for reference.
 
-| Index | Name | Description |
-|---|---|---|
-| 0 | roomTemp | Room temperature ×10 (246 = 24.6 °C) |
-| 1 | flame | Flame / flue temperature (°C) — observed 18→580 range across a full live burn cycle (2026-09-18), settling ~560-580 at full regulation |
-| 3 | errMask32 | Active error bitmask |
-| 4 | errSub | Error sub-code |
-| 5 | stateMask | Blocking-state bitmask — bit value `2` confirmed 2026-09-18 by direct action: opening the pellet hopper lid sets it to `2`, closing it returns it to `0` |
-| 7 | augerSet | Pellet auger setpoint (RPM) — observed 2026-09-18 cycling on/off (~360-620) during active regulation, drops hard to `0` the instant the stove enters Burn Off |
-| 9 | idFanMeas | Induced-draft fan, measured (RPM) — observed 2026-09-18: ~1500 RPM at steady regulation, briefly spikes to ~2585 at the Heating→Burn Off transition (purge), then settles back down over a few minutes |
-| 10 | idFanSet | Induced-draft fan, setpoint (RPM) |
-| 23 | **hopperLidClosed** | Pellet hopper lid state (`1`=closed, `0`=open) — confirmed 2026-09-18 by direct action, same event as `stateMask` bit `2` above |
-| 27 | boardSensor | Board temperature sensor |
+Indices are those of 2.28 / 2.29 stoves. **2.26 / 2.27** have no slot 2: their slot *p*
+is slot *p* below for *p* < 2 and *p* + 1 from 2 on (87 slots).
 
-> **Correction (2026-09-18)**: an earlier hypothesis (from a separate, older research corpus at `~/dev/rika/PROTOCOL.md`, sourced from `WifiUpdateCustomer_V2.0.0.15.exe`'s PRIO1 string-table order) speculated that positions 19-25 in *that* numbering corresponded to MultiAir fan controls (`bConvectionFanActive`, `sConvectionFanLevel`, `sConvectionFan2Level`, etc.). The live confirmation above that **our own index 23 is `hopperLidClosed`**, not a MultiAir field, directly contradicts that hypothesis for this index — and was confirmed with MultiAir switched **off** on the stove during a live burn cycle, while our index 23 still toggled with the hopper lid alone. This means our bridge's `sNN` positional numbering (order of names registered via `GET_SENSORS`) is **not the same index space** as that older PRIO1 field-order theory; the two should not be assumed to line up position-for-position without independent confirmation for each index.
-| 28–30 | stageCur1 / stageTgt2 / stageCur | Current / target heating stage — **indirect MultiAir effect observed 2026-09-18**: activating MultiAir 1 during an active burn immediately jumped `stageTgt2` 70→90% while `stageCur`/`stageCur1` briefly lagged at 51%, and `augerSet` restarted (0→367 RPM). No direct MultiAir on/off flag has been found on the wire, but this looks like the stove's power regulation compensating for the extra heat MultiAir draws away — an indirect signature, not a direct read of the setting. |
-| 31 | mainState | Machine state — corrected 2026-09-18, matches `open-firenet.ino`'s own switch and a live burn cycle: `0`=Off, `1`=Standby, `2`=Ignition, `3`=Flame Start, `4`=Heating, `5`=Grate Cleaning, `6`=Burn Off, `7`=Split Log (previous table here, "0 Standby...5 Burnoff", was wrong) |
-| 32 | subState | Sub-state |
-| 33 | rssi | WiFi RSSI reported back |
-| 35 | fabNumber | Fabrication number |
-| 36 | model | Stove model ID (see [Known Stove Models](#known-stove-models-sensors36--model) below) |
-| 37 | language | UI language index |
-| 38 | appVerBoard | Main board firmware version (229 = V2.29) |
-| 40 | appVersion | Same value as `status.app_version` — confirmed 2026-09-18 by cross-referencing the independently-parsed `POST_CDCDEVICE_STATUS` heartbeat |
-| 43 | blVersion | Same value as `status.bl_version` — confirmed 2026-09-18 by cross-referencing the independently-parsed `POST_CDCDEVICE_STATUS` heartbeat |
-| 44 | firmwareBuild | Firmware build (58512 = 585.12) |
-| 45 | subVersion | Firmware sub-version |
-| 46 | appRevision | Same value as `status.app_revision` — confirmed 2026-09-18 by cross-referencing the independently-parsed `POST_CDCDEVICE_STATUS` heartbeat |
-| 47 | **pelletHours** | Total pellet operating time |
-| 49 | **pelletsTotal** | Total pellet consumption (kg) |
-| 50 | **serviceCountdown** | Consumption remaining before service (kg) |
-| 51 | serviceOffset | Service interval offset |
-| 52 | serviceMinutes | Service time counter |
-| 53 | **ignitionCount** | Total ignition count — confirmed 2026-09-18 by direct comparison against the stove's own Info > Paramètres screen ("Nb d'allumages") |
-| 54 | **onOffCycles** | Total on/off cycle count — confirmed 2026-09-18 by direct comparison against the stove's own Info > Paramètres screen ("Cycles ON/OFF") |
+| Index | Name (Open-Firenet) | Official name | Notes |
+|---|---|---|---|
+| 0 | roomTemp | `inputRoomTemperature` | Room temperature ×10 (246 = 24.6 °C); 1024 = no room sensor connected |
+| 1 | flame | `inputFlameTemperature` | Flame / flue temperature (°C) — observed 18→580 across a full burn cycle |
+| 2 | bakeTemp | `inputBakeTemperature` | Oven temperature (DOMO BACK); record absent on 2.26 / 2.27 |
+| 3 | errMask32 | `statusError` | Active error code / bitmask |
+| 4 | errSub | `statusSubError` | Error sub-code |
+| 5 | statusWarning | `statusWarning` | Active warnings bitmask — value `2` while the pellet hopper lid is open (observed live) |
+| 6 | statusService | `statusService` | Service state |
+| 7 | augerSet | `outputDischargeMotor` | Pellet auger (discharge motor), ~360-620 during regulation, `0` in Burn Off |
+| 8 | augerCurrent | `outputDischargeCurrent` | Auger motor current — swings ~20-112 during a burn, `0` in standby |
+| 9 | idFanMeas | `outputIDFan` | Induced-draft fan (RPM) — ~1500 at regulation, ~2585 purge peak |
+| 10 | idFanSet | `outputIDFanTarget` | Induced-draft fan setpoint (RPM) |
+| 11 | insertionMotor | `outputInsertionMotor` | Insertion motor |
+| 12 | insertionCurrent | `outputInsertionCurrent` | Insertion motor current |
+| 13 | airFlaps | `outputAirFlaps` | Air flaps position, tenths of % (810 = 81.0 %) |
+| 14 | airFlapsTarget | `outputAirFlapsTargetPosition` | Air flaps target position, tenths of % |
+| 15 | burnBackMagnet | `outputBurnBackFlapMagnet` | Burn-back flap magnet |
+| 16 | gridMotor | `outputGridMotor` | Grate motor |
+| 17 | ignition | `outputIgnition` | Igniter |
+| 18 | tempLimiter | `inputUpperTemperatureLimiter` | Safety temperature limiter (1 = OK) |
+| 19 | pressureSwitch | `inputPressureSwitch` | Pressure switch |
+| 20 | pressureSensor | `inputPressureSensor` | Pressure sensor |
+| 21 | gridContact | `inputGridContact` | Grate contact |
+| 22 | door | `inputDoor` | Door contact |
+| 23 | hopperLidClosed | `inputCover` | Pellet hopper lid (`1` = closed, `0` = open) — confirmed live |
+| 24 | externalRequest | `inputExternalRequest` | External request contact |
+| 25 | burnBackSwitch | `inputBurnBackFlapSwitch` | Burn-back flap switch |
+| 26 | flueGasSwitch | `inputFlueGasFlapSwitch` | Flue gas flap switch |
+| 27 | boardSensor | `inputBoardTemperature` | Board temperature (°C) |
+| 28 | stageCur1 | `inputCurrentStage` | Current heating stage (%) |
+| 29 | stageTgt2 | `inputTargetStagePID` | Target stage of the regulation (%) |
+| 30 | stageCur | `inputCurrentStagePID` | Current stage of the regulation (%) |
+| 31 | mainState | `statusMainState` | `0` Off, `1` Standby, `2` Ignition, `3` Flame Start, `4` Heating, `5` Grate Cleaning, `6` Burn Off, `7` Split Log |
+| 32 | subState | `statusSubState` | Sub-state |
+| 33 | rssi | `statusWifiStrength` | Wi-Fi signal the dongle reports in `GET_REVISION` |
+| 34 | ecoModePossible | `parameterEcoModePossible` | Eco mode available (1) or not (0) |
+| 35 | fabNumber | `parameterFabricationNumber` | Fabrication number |
+| 36 | model | `parameterStoveTypeNumber` | Stove model ID (see below) |
+| 37 | language | `parameterLanguageNumber` | Panel language |
+| 38 | appVerBoard | `parameterVersionMainBoard` | Mainboard firmware version (229 = 2.29) |
+| 39 | tftVersion | `parameterVersionTFT` | Display (TFT) firmware version |
+| 40 | appVersion | `parameterVersionWiFi` | Dongle APP version, as sent in the version frame |
+| 41 | blVerBoard | `parameterVersionMainBoardBootLoader` | Mainboard bootloader version |
+| 42 | blVerTft | `parameterVersionTFTBootLoader` | Display bootloader version |
+| 43 | blVersion | `parameterVersionWiFiBootLoader` | Dongle BL version, as sent in the version frame |
+| 44 | firmwareBuild | `parameterVersionMainBoardSub` | Mainboard build (58512 = 585.12) |
+| 45 | tftBuild | `parameterVersionTFTSub` | Display build |
+| 46 | appRevision | `parameterVersionWiFiSub` | Dongle REV, as sent in the version frame |
+| 47 | pelletHours | `parameterRuntimePellets` | Pellet operating time |
+| 48 | logRuntime | `parameterRuntimeLogs` | Wood (log) operating time |
+| 49 | pelletsTotal | `parameterFeedRateTotal` | Total pellet consumption (kg) |
+| 50 | serviceCountdown | `parameterFeedRateService` | Consumption remaining before service (kg) |
+| 51 | serviceOffset | `parameterServiceCountdownKg` | Service countdown (kg) |
+| 52 | serviceMinutes | `parameterServiceCountdownTime` | Service countdown (time) |
+| 53 | ignitionCount | `parameterIgnitionCount` | Ignition count — confirmed against the stove screen |
+| 54 | onOffCycles | `parameterOnOffCycleCount` | On/off cycles — confirmed against the stove screen |
+| 55 | flameSensorOffset | `parameterFlameSensorOffset` | Flame sensor offset |
+| 56 | pressureOffset | `parameterPressureSensorOffset` | Pressure sensor offset |
+| 57–76 | errCount0 … errCount19 | `parameterErrorCount0` … `19` | Error counters |
+| 77 | heatTimesNotProg | `statusHeatingTimesNotProgrammed` | 1 when the heating schedule is off (read in the 2.27 firmware) |
+| 78 | frostStarted | `statusFrostStarted` | Frost protection running |
+| 79 | spiralTuning | `parameterSpiralMotorsTuning` | Auger tuning (can be negative) |
+| 80 | idFanTuning | `parameterIDFanTuning` | Induced-draft fan tuning |
+| 81 | cleanInterval | `parameterCleanIntervalBig` | Big cleaning interval |
+| 82 | kgTillCleaning | `parameterKgTillCleaning` | kg until cleaning — independent of `serviceCountdown` (observed live) |
+| 83–87 | debug0 … debug4 | `parameterDebug0` … `4` | Debug values, the same variables as controls 33–37 |
 
-Indices not listed read `0` in standby and are not yet identified.
-
-**Slot 8** is a partial exception: still unidentified, but observed 2026-09-18 to hold `0`
-in standby and swing through varying non-zero values (roughly 20-112) throughout an
-active burn — likely a combustion-related reading (air/flow/motor-adjacent), not a
-simple flag. Exact meaning not determined.
-
-**Unconfirmed lead — slot 39**: reads the exact same value as `appVerBoard` (index 38,
-`229`) in every capture taken so far (2026-09-18). Not an artefact of the bridge —
-`parseBody()` fills `raw_sensors` straight from what the stove sends positionally in
-`POST_SENSORS`, so the stove genuinely emits `229` twice. Hypothesis, **not confirmed**:
-this could be an "expected" vs. "actual" board-version pair used by the official OTA
-validation logic (`WIFI Version OK` / `WIFI Version INVALID` states, already documented
-elsewhere in this repo's OTA state-string findings) — the two would only diverge during
-a real firmware update, which we have no way to trigger from our side to test this.
-Left unnamed (`s39`) pending that opportunity.
-
-Registering more names than the ~9-12 previously documented as a GET_SENSORS ceiling
-works fine — no "TOO MUCH ENTRIES" error, tested live up to 150 names requested
-(2026-09-18). **The request side has no practical limit found so far.**
-
-**The stove's real ceiling is on the response side, and it is exactly 88 slots
-(indices 0-87)** — confirmed empirically (2026-09-18): registering 150 names still
-only ever gets a `POST_SENSORS` response populated up to `s87`; indices 88-149 are
-requested but never come back with a value, with or without error. This matches the
-"~88 slots" figure that appeared in this doc pre-2026-09-18 without any citation —
-it is now a directly-tested fact, not an unsourced claim.
-
-Slots 53-87 beyond `onOffCycles` return real (non-zero) values in standby but are not
-yet identified.
-
-**Resolved (2026-09-18)**: slot 82 matching `serviceCountdown` (index 50) was flagged
-earlier as an unverified coincidence. During a live burn, `serviceCountdown` dropped
-from `700` to `699` on real pellet consumption while **slot 82 stayed at `700`** —
-confirming they are two independent values that simply happened to match, not the
-same counter. Slot 82 remains unidentified.
+The stove's response is capped at **88 slots** (0–87): registering more names is accepted
+but slots 88 and above never come back (tested live up to 150 names).
 
 ### Known Stove Models (`sensors[36]` / `model`)
 
@@ -481,6 +514,9 @@ setup. A plain `WiFi.begin()` alone tends not to associate.
 
 ### Warnings
 
+> Source of this table not verified. Observed live: `statusWarning` = `2` (bit 1) while
+> the pellet hopper lid is open; `32` on an INDUO without room sensor.
+
 | Bit | Meaning |
 |---|---|
 | 0 | Low pellet level |
@@ -503,8 +539,11 @@ setup. A plain `WiFi.begin()` alone tends not to associate.
 
 ## Watchdog
 
-The stove reboots the dongle after **360 seconds** without a `POST_CDCDEVICE_STATUS`.
-Keep the keepalive well under that.
+The stove reboots the dongle after **360 seconds** without a `POST_CDCDEVICE_STATUS`
+(2.29). Keep the keepalive well under that.
+
+Open-Firenet also restarts itself after 60 s without any data from the stove; on
+2.26 / 2.27 the `POST_FIRENET_STATUS` ping (every ~20 s) keeps an idle stove answering.
 
 ---
 
@@ -513,11 +552,11 @@ Keep the keepalive well under that.
 - The stove never asserts DTR — write directly to the USB CDC FIFO.
 - Send large frames in ≤ 32-byte flushed chunks (short packets) or the stove's USB host
   aborts the pipe.
-- Register **all** sensor names (0…52) to get the high-index counters; the stove only
+- Register **all** sensor names (0…87) to get the high-index counters; the stove only
   emits the slots you name, starting at 0.
-- Parse `POST_CONTROLS` / `POST_SENSORS` **positionally**; the field names are your own
-  and can appear shifted by a leading artefact value.
+- 2.29 may send values positionally (`=value;` without names): parse them by position.
+  2.26 / 2.27 echo the registered names: parse them by name.
 - `roomTarget` / room temperature are **×10** on the wire in both directions.
 - `GET_REVISION` must precede `TRANSFER_COMPLETED`, or nothing is returned.
-- Firenet v2 stoves (`symbol_current == 2`) use `GET_FIRENET_STATUS` /
-  `POST_FIRENET_STATUS` instead of the CDC device-status commands — not covered here.
+- 2.26 / 2.27 (and 2.28) use `GET_FIRENET_STATUS` / `POST_FIRENET_STATUS` (19 fields,
+  plain-text SSID, 8-digit id) instead of the CDC device-status commands.

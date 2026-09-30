@@ -16,11 +16,12 @@ No cloud account. No internet dependency. Works on your LAN.
 
 RIKA stoves use a USB CDC dongle (the "Firenet 2.0" stick) to connect to RIKA's cloud. This project replaces that dongle with an ESP32-S3 that:
 
-- Speaks the same USB CDC protocol as the original dongle
+- Speaks the same USB CDC protocol as the original dongle, and detects by itself which protocol generation your stove uses (see [Stove compatibility](#stove-compatibility))
 - Connects to your home WiFi
 - Exposes a responsive local web interface at `http://open-firenet.local` with direct controls, weekly heating schedule, and live diagnostics
 - Controls **MultiAir 1 & 2** forced-air convection fans on supported stove models (DOMO, PARO, PRIMO MULTIAIR, ROCO MULTIAIR, SUMO MULTIAIR, DOMO BACK)
 - Manages the **7-day heating schedule** (14 time slots) and setback / maintenance temperature locally
+- Reads every value the stove reports (88 records, named after the official RIKA names) and the stove settings, including frost protection, room sensor calibration, eco mode, warnings and air flaps
 - Exposes a comprehensive REST API for home automation (Home Assistant, Node-RED, etc.)
 - Stores all state locally — no cloud account, no internet dependency, 100% private
 
@@ -39,7 +40,7 @@ RIKA stoves use a USB CDC dongle (the "Firenet 2.0" stick) to connect to RIKA's 
 
 ### How it connects
 
-The stove acts as USB host; the ESP32-S3 acts as USB device (CDC class). The firmware registers VID `0x303A` / PID `0x819A` to match the original dongle and be recognized by the stove's firmware.
+The stove acts as USB host; the ESP32-S3 acts as USB device (CDC class, VID `0x303A` / PID `0x819A`). The stove does not check the VID/PID: it only needs a CDC data interface, which the firmware provides.
 
 ### What to look for when buying
 
@@ -156,7 +157,7 @@ Then inside WSL:
      0x10000 open-firenet.ino.bin
    ```
 
-> **OTA is the easiest path on Windows** — flash once via serial (Option A or B), then all subsequent updates work via `./flash.sh --ota <ip>` from any platform, or directly through the `/update` page in the browser.
+> **OTA is the easiest path on Windows** — flash once via serial (Option A or B), then all subsequent updates work over Wi-Fi, with the [Installer](https://github.com/openfirenet/open-firenet-installer) or `./flash.sh --ota <ip>`.
 
 ---
 
@@ -202,6 +203,7 @@ Once connected, open **`http://open-firenet.local`** in any web browser (or use 
       - Fan On / Off toggle
       - Speed regulation: **Auto** mode vs **Manual** levels 1 to 5
       - Convection trim / correction slider: **-30% to +30%**
+    - Without a RIKA room sensor, the room temperature is shown as `--` (the stove reports a "no sensor" value)
 
 <p align="center">
   <img src="assets/ui-desktop-schedule.png" alt="Open Firenet Web UI - Weekly Heating Schedule" width="760">
@@ -215,17 +217,35 @@ Once connected, open **`http://open-firenet.local`** in any web browser (or use 
       - Quick copy actions (e.g. Monday $\rightarrow$ Weekdays or Full Week)
       - Per-day clear button (quick reset)
       - Single-click bulk apply with immediate CDC synchronization
+  - **⚙️ Settings**:
+    - **Eco mode** switch (enabled only when the stove reports that eco mode is possible)
+    - **Frost protection** on/off and target temperature (4 – 10 °C)
+    - **Room sensor calibration** offset (-4.0 – +4.0 °C)
+    - **Baking oven** target temperature (DOMO BACK only)
 - **Supervision & Diagnostics Deck**:
-  - **Full Telemetry**: live metrics table (temperatures, combustion chamber, pellet consumption, auger & exhaust fan RPM, runtime hours, service countdown, error and warning bitmasks)
+  - **Full Telemetry**: every value reported by the stove, with its name (temperatures, pellet consumption, auger & exhaust fan, air flaps, runtime hours, service countdown, error and warning codes, error counters, versions...)
   - **Network & WiFi**: IP, MAC address, signal strength, AP scan, Wi-Fi reconfiguration & reset
   - **USB CDC Link**: USB CDC state, packet counters, protocol revision
-  - **CDC Logs**: collapsible real-time console streaming raw bidirectional USB packets with sanitized WiFi credentials
+  - **CDC Logs**: collapsible real-time console streaming raw bidirectional USB packets with sanitized WiFi credentials (identical consecutive lines are merged), and the delay between frames sent to the stove (50 – 600 ms, default 150 ms)
 
 ### Mobile Interface
 
 <p align="center">
   <img src="assets/ui-mobile.png" alt="Open Firenet - Mobile Interface" width="360">
 </p>
+
+---
+
+## Stove compatibility
+
+What matters is the **mainboard firmware version** of the stove (menu Info on the stove screen), not the model: each firmware generation speaks its own variant of the protocol. At startup the bridge tries each variant in turn and keeps the one the stove answers (about 6 seconds on the first boot, immediate afterwards).
+
+| Mainboard firmware | Status | Notes |
+|:---:|:---|:---|
+| **2.29** (e.g. DOMO, DOMO BACK, PRIMO MULTIAIR) | ✅ Supported | All values and settings |
+| **2.26 / 2.27** (e.g. INDUO) | ✅ Supported | All values read; on/off, mode, heating power and target temperature can be changed, the other settings are read-only for now |
+| **2.28** (e.g. INDUO II, SONO) | 🚧 Not yet | Detected, but the stove does not complete the link yet |
+| **2.25 and older** | ❓ Untested | Feedback welcome |
 
 ---
 
@@ -268,51 +288,75 @@ Open-Firenet V2 provides a clean, unified REST JSON API with natural units (temp
 ```json
 {
   "device": {
-    "status": "connected",
-    "rssi": -62,
+    "name": "Open-Firenet",
+    "version": "2.5.0",
     "ip": "192.168.1.93",
-    "mac": "84:FC:E6:XX:XX:XX",
-    "uptime_ms": 348210
+    "mac": "34:85:18:XX:XX:XX",
+    "wifi_ssid": "MyWiFi",
+    "wifi_rssi": -43,
+    "uptime_seconds": 3600,
+    "free_heap": 118000,
+    "connected": true
   },
   "stove": {
-    "online": true,
-    "state": "regulation",
-    "state_code": 3,
-    "igniter_on": false,
-    "error_mask": 0,
-    "warning_mask": 0,
+    "state": "standby",
+    "state_code": 1,
+    "state_label": "Standby",
+    "sub_state": 0,
+    "is_burning": false,
+    "has_error": false,
+    "error_code": 0,
+    "error_sub": 0,
+    "warning_code": 0,
     "model": 13,
-    "model_name": "RIKA DOMO",
+    "model_name": "DOMO",
     "mainboard_version": "2.29",
     "firmware_build": "58512"
   },
   "sensors": {
-    "room_temperature": 20.4,
-    "combustion_temperature": 412.0,
-    "board_temperature": 32.5,
-    "pellets_total_kg": 2450,
-    "pellet_hours": 1250,
-    "service_countdown_kg": 550,
-    "fan_speed_rpm": 1450,
-    "auger_speed_rpm": 420
+    "room_temperature": 23.4,
+    "room_sensor_connected": true,
+    "combustion_temperature": 19.0,
+    "board_temperature": 28.0,
+    "pellets_total_kg": 7065,
+    "pellet_hours": 4354,
+    "service_countdown_kg": 699,
+    "fan_speed_rpm": 0,
+    "auger_speed_rpm": 0,
+    "air_flaps_percent": 0.0,
+    "air_flaps_target_percent": 0.0
   },
   "controls": {
-    "on": true,
+    "on": false,
     "mode": "comfort",
     "mode_code": 2,
     "target_temperature": 21.0,
     "power_percent": 70,
-    "heating_times_active": true,
+    "heating_times_active": false,
     "setback_temperature": 16.0,
     "convection_fan1_active": true,
     "convection_fan1_level": 0,
     "convection_fan1_area": 10,
     "convection_fan2_active": false,
     "convection_fan2_level": 0,
-    "convection_fan2_area": 0
-  }
+    "convection_fan2_area": 0,
+    "frost_protection_active": true,
+    "frost_protection_temperature": 8.0,
+    "bake_target_temperature": 180,
+    "room_temperature_offset": 0.0,
+    "eco_mode": false,
+    "eco_mode_possible": false
+  },
+  "version_ack": true,
+  "version_frame": "V3",
+  "generation": 1,
+  "raw_sensors": { "roomTemp": 234, "flame": 19, "statusWarning": 0, "airFlaps": 0, "...": "every stove record by name" }
 }
 ```
+
+- `room_temperature` is `null` and `room_sensor_connected` is `false` when no RIKA room sensor is connected.
+- `version_frame` tells which protocol variant the stove answered: `V3` (firmware 2.29), `V28` (2.28), `V1` (2.26 / 2.27).
+- `raw_sensors` holds every value reported by the stove under its name; the names follow the official RIKA ones (`statusWarning`, `airFlaps`, `errCount0`...), see [PROTOCOL.md](PROTOCOL.md).
 
 ### `POST /api/controls` (Direct controls & MultiAir)
 
@@ -356,6 +400,10 @@ Supported fields:
   - `bakeTarget` (or `bake_target_temperature`, `bake_target`, `bakeTemp`, `bake`): integer in °C (`130` – `340` °C, DOMO BACK model 23)
 - **Room Temperature Offset Calibration**:
   - `roomTempOffset` (or `room_temperature_offset`, `room_temp_offset`, `tempOffset`): float in °C (`-4.0` – `+4.0` °C, step 0.1) or integer in tenths (`-40` – `+40`)
+- **Eco mode** (firmware 2.29, when `eco_mode_possible` is `true`):
+  - `ecoMode` (or `eco_mode`): boolean or `0`/`1`
+
+On firmware 2.26 / 2.27, only `on`, `mode`, `power_percent` and `target_temperature` are applied for now.
 
 ---
 
@@ -431,12 +479,20 @@ For Home Assistant, use the official custom integration repository:
 
 Features:
 - Single-step setup via UI Config Flow (enter `http://open-firenet.local` or IP)
-- Native **Climate** entity (`climate.stove`) with target temperature, presets (`manual`, `auto`, `comfort`), and heating power
-- **MultiAir 1 & 2 Fan entities**: fan speed controls, auto regulation toggle, and convection trim controls
-- **Weekly Schedule entities**: heating schedule toggle, setback temperature control, and time slot configurations
-- **11 native sensor entities**: room temperature, flame temperature, operational state, sub-state, Wi-Fi RSSI, runtime, pellet consumption, error masks
-- **Binary sensors**: Stove connection, combustion active, error status
-- Real-time updates via asynchronous polling of the V2 API without cloud lag
+- Native **Climate** entity with target temperature, presets (`manual`, `auto`, `comfort`) and heating power
+- **MultiAir 1 & 2** fans, **weekly schedule**, frost protection, room sensor calibration and bake temperature entities
+- Sensors and binary sensors for temperatures, state, pellet consumption, errors and warnings
+- Local polling of the bridge API, no cloud
+
+See the integration's README for the full list of entities.
+
+---
+
+## Development
+
+- **Web interface**: the page source is [`open-firenet/web/index.html`](open-firenet/web/index.html). It is stored gzip-compressed in the firmware: after editing it, run `python3 tools/gen_web_ui.py` and commit both `web/index.html` and the regenerated `open-firenet/web_ui.h` (CI checks that they match).
+- **Tests**: `./test/build_and_test.sh` builds and runs the host tests (protocol, link, API command parsing) and the stove simulator; no hardware needed.
+- **Protocol notes**: see [PROTOCOL.md](PROTOCOL.md).
 
 ---
 
