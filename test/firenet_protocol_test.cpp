@@ -47,6 +47,10 @@ int main(){
   CHECK("13","ctrl 1 = onOff", ctrlName(1)=="onOff");
   CHECK("13","ctrl 3 = targetStage", ctrlName(3)=="targetStage");
   CHECK("14","sens 0 = roomTemp", sensName(0)=="roomTemp");
+  // official record order (Rika cloud field order): 5 statusWarning, 13 outputAirFlaps, 14 its target position
+  CHECK("14","sens 5 = statusWarning, 13/14 = airFlaps/airFlapsTarget",
+        sensName(5)=="statusWarning" && sensName(13)=="airFlaps" && sensName(14)=="airFlapsTarget");
+  CHECK("14","V1 position 12 = airFlaps (DOMO 13), 87 records named", sensName(12,2)=="airFlaps" && sensName(87)=="debug4");
   CHECK("14","sens 31 = mainState", sensName(31)=="mainState");
   CHECK("14","sens 33 = rssi", sensName(33)=="rssi");
   CHECK("13","control non identifié -> cNN", ctrlName(34)=="c34");

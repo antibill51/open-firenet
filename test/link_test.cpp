@@ -197,14 +197,14 @@ int main(){
       size_t gs = w5.find("GET_SENSORS=0; ");
       CH("V1 pollSensors registers the names (GET_SENSORS=0; ...)", gs != std::string::npos);
       CH("V1 registration starts with the labels of V1 positions 0..4",
-         w5.find("GET_SENSORS=0; roomTemp=0; flame=0; errMask32=0; errSub=0; stateMask=0; s06=0; augerSet=0; ") != std::string::npos);
+         w5.find("GET_SENSORS=0; roomTemp=0; flame=0; errMask32=0; errSub=0; statusWarning=0; statusService=0; augerSet=0; ") != std::string::npos);
       CH("V1 registration has V1 position 30 = mainState (DOMO 31) and 45 = appRevision (DOMO 46)",
          w5.find("stageCur=0; mainState=0; subState=0; rssi=0; ") != std::string::npos && w5.find("appRevision=0; pelletHours=0; ") != std::string::npos);
-      CH("V1 registration contains onOffCycles then the unlabelled DOMO 55.. as sNN", w5.find("ignitionCount=0; onOffCycles=0; s55=0; s56=0; ") != std::string::npos);
+      CH("V1 registration contains onOffCycles then the official-name records from DOMO 55", w5.find("ignitionCount=0; onOffCycles=0; flameSensorOffset=0; pressureOffset=0; errCount0=0; ") != std::string::npos);
       {
-        size_t end = w5.find("s86=0; s87=0; ");
+        size_t end = w5.find("debug3=0; debug4=0; ");
         CH("V1 registration ends with DOMO 87 (V1 position 86, the last record the stove fills)",
-           end != std::string::npos && end + 14 <= w5.size() && w5.compare(end + 14, 13, "GET_REVISION=") == 0);
+           end != std::string::npos && end + 20 <= w5.size() && w5.compare(end + 20, 13, "GET_REVISION=") == 0);
       }
       size_t gr = w5.find("GET_REVISION="), t1 = w5.find("TRANSFER_COMPLETED");
       size_t t2 = t1 == std::string::npos ? t1 : w5.find("TRANSFER_COMPLETED", t1 + 1);
@@ -396,7 +396,7 @@ int main(){
     w11.clear();
     l11.pollSensors();
     for(int i=0;i<8 && !l11.txIdle();i++){ c11+=DongleLink::TX_GAP_MS; l11.poll(); }
-    CH("2.28: sensor registration keeps DOMO position 2 (s02), unshifted", w11.find("GET_SENSORS=0; roomTemp=0; flame=0; s02=0; errMask32=0; ") != std::string::npos);
+    CH("2.28: sensor registration keeps DOMO position 2 (bakeTemp), unshifted", w11.find("GET_SENSORS=0; roomTemp=0; flame=0; bakeTemp=0; errMask32=0; ") != std::string::npos);
     w11.clear();
     l11.pollControls();
     for(int i=0;i<8 && !l11.txIdle();i++){ c11+=DongleLink::TX_GAP_MS; l11.poll(); }
@@ -457,6 +457,17 @@ int main(){
     l14.requestStatus();
     for(int i=0;i<8 && !l14.txIdle();i++){ c14+=DongleLink::TX_GAP_MS; l14.poll(); }
     CH("DOMO/V3 status cycle unchanged (bare POST_CDCDEVICE_STATUS only)", w14 == "POST_CDCDEVICE_STATUS");
+  }
+
+  // Sensor names: the stove copies each registered name into a 32-byte field without a length check, and receives
+  // at most 2048 bytes per frame; its POST_SENSORS builder also formats into a ~2 KB stack buffer.
+  {
+    size_t longest = 0, v1reg = 15, v28reg = 15, v28post = 16;
+    for (int p = 0; p < DongleLink::V1_SENSOR_COUNT; p++) { std::string n = sensName(p, 2); longest = std::max(longest, n.size()); v1reg += n.size() + 4; }
+    for (int p = 0; p < DongleLink::V28_SENSOR_COUNT; p++) { std::string n = sensName(p); v28reg += n.size() + 4; v28post += n.size() + 1 + 7 + 2; }
+    CH("sensor names fit the stove's 32-byte name field", longest <= 31);
+    CH("sensor registration frames stay well under the stove's 2048-byte receive limit", v1reg < 1600 && v28reg < 1600);
+    CH("a full POST_SENSORS with 7-digit values stays under 2048 bytes", v28post < 2048);
   }
 
   std::cout << ok << " ok, " << ko << " failures\n";

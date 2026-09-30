@@ -184,27 +184,105 @@ static const char* CONTROL_LABELS[] = {
 };
 static const int NUM_CONTROL_LABELS = 33;
 
-// index = position du capteur ; couvre les positions prouvées jusqu'à 54 (55 au total).
+// index = sensor position in the DOMO / INDUO II table (88 records; the INDUO 2.26/2.27 table is the same without
+// record 2, see v1ToDomoIndex). The comment is the official name of the record: the official key does not hold the
+// names, it fetches them from the Rika server and registers them with the stove, so the order of the cloud "sensors"
+// object is the record order (full cloud dump in natural order, 87 names, checked position by position against every
+// record already identified and against the disassembly; record 2 = inputBakeTemperature from a DOMO/2.28 dump).
+// The wire names are kept short on purpose: the stove copies each registered name without a length check into a
+// 32-byte field (name at +0, value at +0x20), and receives at most 2048 bytes per frame, while some official names
+// are 35 characters long. Names already used by the firmware or the Home Assistant integration are kept as they were.
 static const char* SENSOR_LABELS[] = {
-  /*0*/"roomTemp",      /*1*/"flame",       /*2*/"",           /*3*/"errMask32",
-  /*4*/"errSub",        /*5*/"stateMask",   /*6*/"",           /*7*/"augerSet",
-  /*8*/"",              /*9*/"idFanMeas",   /*10*/"idFanSet",  /*11*/"",
-  /*12*/"",             /*13*/"",           /*14*/"",          /*15*/"",
-  /*16*/"",             /*17*/"",           /*18*/"",          /*19*/"",
-  /*20*/"",             /*21*/"",           /*22*/"",          /*23*/"hopperLidClosed",
-  /*24*/"",             /*25*/"",           /*26*/"",          /*27*/"boardSensor",
-  /*28*/"stageCur1",    /*29*/"stageTgt2",  /*30*/"stageCur",  /*31*/"mainState",
-  /*32*/"subState",     /*33*/"rssi",       /*34*/"",          /*35*/"fabNumber",
-  /*36*/"model",        /*37*/"language",   /*38*/"appVerBoard",
-  /*39*/"",             /*40*/"appVersion", /*41*/"",          /*42*/"",
-  /*43*/"blVersion",    /*44*/"firmwareBuild",/*45*/"subVersion",/*46*/"appRevision",
-  /*47*/"pelletHours",  /*48*/"",           /*49*/"pelletsTotal",/*50*/"serviceCountdown",
-  /*51*/"serviceOffset",/*52*/"serviceMinutes",
-  // 53-54 confirmed 2026-09-18 by direct comparison against the stove's own
-  // Info > Paramètres screen (real hardware match, not binary-only inference).
-  /*53*/"ignitionCount",/*54*/"onOffCycles",
+  /*0*/"roomTemp",          // inputRoomTemperature
+  /*1*/"flame",             // inputFlameTemperature
+  /*2*/"bakeTemp",          // inputBakeTemperature
+  /*3*/"errMask32",         // statusError
+  /*4*/"errSub",            // statusSubError
+  /*5*/"statusWarning",     // statusWarning
+  /*6*/"statusService",     // statusService
+  /*7*/"augerSet",          // outputDischargeMotor
+  /*8*/"augerCurrent",      // outputDischargeCurrent
+  /*9*/"idFanMeas",         // outputIDFan
+  /*10*/"idFanSet",         // outputIDFanTarget
+  /*11*/"insertionMotor",   // outputInsertionMotor
+  /*12*/"insertionCurrent", // outputInsertionCurrent
+  /*13*/"airFlaps",         // outputAirFlaps
+  /*14*/"airFlapsTarget",   // outputAirFlapsTargetPosition
+  /*15*/"burnBackMagnet",   // outputBurnBackFlapMagnet
+  /*16*/"gridMotor",        // outputGridMotor
+  /*17*/"ignition",         // outputIgnition
+  /*18*/"tempLimiter",      // inputUpperTemperatureLimiter
+  /*19*/"pressureSwitch",   // inputPressureSwitch
+  /*20*/"pressureSensor",   // inputPressureSensor
+  /*21*/"gridContact",      // inputGridContact
+  /*22*/"door",             // inputDoor
+  /*23*/"hopperLidClosed",  // inputCover
+  /*24*/"externalRequest",  // inputExternalRequest
+  /*25*/"burnBackSwitch",   // inputBurnBackFlapSwitch
+  /*26*/"flueGasSwitch",    // inputFlueGasFlapSwitch
+  /*27*/"boardSensor",      // inputBoardTemperature
+  /*28*/"stageCur1",        // inputCurrentStage
+  /*29*/"stageTgt2",        // inputTargetStagePID
+  /*30*/"stageCur",         // inputCurrentStagePID
+  /*31*/"mainState",        // statusMainState
+  /*32*/"subState",         // statusSubState
+  /*33*/"rssi",             // statusWifiStrength
+  /*34*/"ecoModePossible",  // parameterEcoModePossible
+  /*35*/"fabNumber",        // parameterFabricationNumber
+  /*36*/"model",            // parameterStoveTypeNumber
+  /*37*/"language",         // parameterLanguageNumber
+  /*38*/"appVerBoard",      // parameterVersionMainBoard
+  /*39*/"tftVersion",       // parameterVersionTFT
+  /*40*/"appVersion",       // parameterVersionWiFi
+  /*41*/"blVerBoard",       // parameterVersionMainBoardBootLoader
+  /*42*/"blVerTft",         // parameterVersionTFTBootLoader
+  /*43*/"blVersion",        // parameterVersionWiFiBootLoader
+  /*44*/"firmwareBuild",    // parameterVersionMainBoardSub
+  /*45*/"tftBuild",         // parameterVersionTFTSub
+  /*46*/"appRevision",      // parameterVersionWiFiSub
+  /*47*/"pelletHours",      // parameterRuntimePellets
+  /*48*/"logRuntime",       // parameterRuntimeLogs
+  /*49*/"pelletsTotal",     // parameterFeedRateTotal
+  /*50*/"serviceCountdown", // parameterFeedRateService
+  /*51*/"serviceOffset",    // parameterServiceCountdownKg
+  /*52*/"serviceMinutes",   // parameterServiceCountdownTime
+  /*53*/"ignitionCount",    // parameterIgnitionCount
+  /*54*/"onOffCycles",      // parameterOnOffCycleCount
+  /*55*/"flameSensorOffset",// parameterFlameSensorOffset
+  /*56*/"pressureOffset",   // parameterPressureSensorOffset
+  /*57*/"errCount0",        // parameterErrorCount0
+  /*58*/"errCount1",        // parameterErrorCount1
+  /*59*/"errCount2",        // parameterErrorCount2
+  /*60*/"errCount3",        // parameterErrorCount3
+  /*61*/"errCount4",        // parameterErrorCount4
+  /*62*/"errCount5",        // parameterErrorCount5
+  /*63*/"errCount6",        // parameterErrorCount6
+  /*64*/"errCount7",        // parameterErrorCount7
+  /*65*/"errCount8",        // parameterErrorCount8
+  /*66*/"errCount9",        // parameterErrorCount9
+  /*67*/"errCount10",       // parameterErrorCount10
+  /*68*/"errCount11",       // parameterErrorCount11
+  /*69*/"errCount12",       // parameterErrorCount12
+  /*70*/"errCount13",       // parameterErrorCount13
+  /*71*/"errCount14",       // parameterErrorCount14
+  /*72*/"errCount15",       // parameterErrorCount15
+  /*73*/"errCount16",       // parameterErrorCount16
+  /*74*/"errCount17",       // parameterErrorCount17
+  /*75*/"errCount18",       // parameterErrorCount18
+  /*76*/"errCount19",       // parameterErrorCount19
+  /*77*/"heatTimesNotProg", // statusHeatingTimesNotProgrammed
+  /*78*/"frostStarted",     // statusFrostStarted
+  /*79*/"spiralTuning",     // parameterSpiralMotorsTuning
+  /*80*/"idFanTuning",      // parameterIDFanTuning
+  /*81*/"cleanInterval",    // parameterCleanIntervalBig
+  /*82*/"kgTillCleaning",   // parameterKgTillCleaning
+  /*83*/"debug0",           // parameterDebug0
+  /*84*/"debug1",           // parameterDebug1
+  /*85*/"debug2",           // parameterDebug2
+  /*86*/"debug3",           // parameterDebug3
+  /*87*/"debug4",           // parameterDebug4
 };
-static const int NUM_SENSOR_LABELS = 55;
+static const int NUM_SENSOR_LABELS = 88;
 
 // nom émis pour une position (libellé prouvé, sinon "sNN"/"cNN")
 // INDUO V2.26 / V2.27 (generation 2): the controls table of the stove is the DOMO / INDUO II one without the record at
