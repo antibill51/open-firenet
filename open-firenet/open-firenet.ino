@@ -562,8 +562,11 @@ static void handleVersion() {
   );
   web.send(200, "application/json", buf);
 }
-static void handleRoot()    { web.send_P(200, "text/html", INDEX_HTML); }
-static void handleArm()    { sendCors(); web.send(200, "application/json", "{\"write\":true}"); }
+// The page is stored gzip-compressed (web_ui.h, generated from web/index.html) and decompressed by the browser.
+static void handleRoot() {
+  web.sendHeader("Content-Encoding", "gzip");
+  web.send_P(200, "text/html", (PGM_P)INDEX_HTML_GZ, INDEX_HTML_GZ_LEN);
+}
 
 // GET/POST /api/txgap : délai entre trames envoyées au poêle (ms), borné à 50..600.
 // Pris en compte dès la prochaine évaluation de la file d'émission ; conservé en NVS.
@@ -832,122 +835,6 @@ static void sendCors() {
   web.sendHeader("Access-Control-Allow-Origin", "*");
   web.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   web.sendHeader("Access-Control-Allow-Headers", "*");
-}
-
-// GET /api/status (compatibilité open-firenet)
-static void handleApiStatus() {
-  sendCors();
-  const auto& m = g_link->model();
-  long curOn = 0, curMode = 2, curStage = 70, curRoom = 200;
-  auto itOn = m.controls.find("onOff"); if (itOn != m.controls.end()) curOn = itOn->second;
-  auto itMode = m.controls.find("mode"); if (itMode != m.controls.end()) curMode = itMode->second;
-  auto itStage = m.controls.find("targetStage"); if (itStage != m.controls.end()) curStage = itStage->second;
-  auto itRoom = m.controls.find("roomTarget"); if (itRoom != m.controls.end()) curRoom = itRoom->second;
-
-  char ctrlStr[160];
-  snprintf(ctrlStr, sizeof ctrlStr, "onOff=%ld; operatingMode=%ld; heatingPower=%ld; tempRoomTarget=%ld;",
-           curOn, curMode, curStage, curRoom);
-
-  String json = "{";
-  json += "\"wifi\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
-  json += "\"ip\":\"" + (WiFi.getMode() == WIFI_AP ? WiFi.softAPIP().toString() : WiFi.localIP().toString()) + "\",";
-  json += "\"ssid\":\"" + wifiSsid + "\",";
-  json += "\"provisioning\":" + String(WiFi.getMode() == WIFI_AP ? "true" : "false") + ",";
-  json += "\"mainLoop\":" + String(m.version_ack ? "true" : "false") + ",";
-  json += "\"pauseCdc\":false,";
-  json += "\"controls\":\"" + String(ctrlStr) + "\",";
-  json += "\"revisionFrequency\":60";
-  json += "}";
-  web.send(200, "application/json", json);
-}
-
-// GET /api/sensors (compatibilité open-firenet & Home Assistant)
-static void handleApiSensors() {
-  sendCors();
-  const auto& m = g_link->model();
-  String json = "{";
-  bool first = true;
-  auto addKV = [&](const String& k, const String& v) {
-    if (!first) json += ",";
-    json += "\"" + k + "\":\"" + v + "\"";
-    first = false;
-  };
-
-  long rTemp = 0, fTemp = 0, mState = 1, sState = 0;
-  long pTotal = 0, pHours = 0, sCount = 700, idFan = 0;
-  long modelId = (m.generation == 2) ? 1 : 13;
-
-  if (m.generation == 2) {
-    if (m.sensors_pos.size() > 0)  rTemp = m.sensors_pos[0];
-    if (m.sensors_pos.size() > 1)  fTemp = m.sensors_pos[1];
-    if (m.sensors_pos.size() > 4)  sCount = m.sensors_pos[4];
-    if (m.sensors_pos.size() > 7)  idFan = m.sensors_pos[7];
-    if (m.sensors_pos.size() > 9)  pHours = m.sensors_pos[9];
-    if (m.sensors_pos.size() > 11) pTotal = m.sensors_pos[11];
-  } else {
-    if (m.sensors_pos.size() > 0)  rTemp = m.sensors_pos[0];
-    if (m.sensors_pos.size() > 1)  fTemp = m.sensors_pos[1];
-    if (m.sensors_pos.size() > 9)  idFan = m.sensors_pos[9];
-    if (m.sensors_pos.size() > 31) mState = m.sensors_pos[31];
-    if (m.sensors_pos.size() > 32) sState = m.sensors_pos[32];
-    if (m.sensors_pos.size() > 36) modelId = m.sensors_pos[36];
-    if (m.sensors_pos.size() > 47) pHours = m.sensors_pos[47];
-    if (m.sensors_pos.size() > 49) pTotal = m.sensors_pos[49];
-    if (m.sensors_pos.size() > 50) sCount = m.sensors_pos[50];
-  }
-
-  auto itR = m.sensors.find("roomTemp"); if (itR != m.sensors.end()) rTemp = itR->second;
-  auto itF = m.sensors.find("flame"); if (itF != m.sensors.end()) fTemp = itF->second;
-  auto itMS = m.sensors.find("mainState"); if (itMS != m.sensors.end()) mState = itMS->second;
-  auto itSS = m.sensors.find("subState"); if (itSS != m.sensors.end()) sState = itSS->second;
-  auto itPT = m.sensors.find("pelletsTotal"); if (itPT != m.sensors.end()) pTotal = itPT->second;
-  auto itPH = m.sensors.find("pelletHours"); if (itPH != m.sensors.end()) pHours = itPH->second;
-  auto itSC = m.sensors.find("serviceCountdown"); if (itSC != m.sensors.end()) sCount = itSC->second;
-  auto itFan = m.sensors.find("idFanMeas"); if (itFan != m.sensors.end()) idFan = itFan->second;
-  auto itMod = m.sensors.find("model"); if (itMod != m.sensors.end()) modelId = itMod->second;
-
-  // Clé 'f0' essentielle pour les configurations Home Assistant (value_json.f0)
-  addKV("f0", String(rTemp));
-  addKV("roomTemp", String(rTemp));
-  addKV("flameTemp", String(fTemp));
-  addKV("combustionChamberTemp", String(fTemp));
-  addKV("mainState", String(mState));
-  addKV("subState", String(sState));
-  addKV("feedRateTotal", String(pTotal));
-  addKV("pelletsTotal", String(pTotal));
-  addKV("runtimePellets", String(pHours));
-  addKV("pelletHours", String(pHours));
-  addKV("serviceCountdown", String(sCount));
-  addKV("serviceCountdownKg", String(sCount));
-  addKV("idFan", String(idFan));
-
-  addKV("model", String(modelId));
-  addKV("modelName", getStoveModelName(modelId));
-
-  // Contrôles en lecture
-  long curOn = 0, curMode = 2, curStage = 70, curRoom = 200;
-  auto itOn = m.controls.find("onOff"); if (itOn != m.controls.end()) curOn = itOn->second;
-  auto itMode = m.controls.find("mode"); if (itMode != m.controls.end()) curMode = itMode->second;
-  auto itStage = m.controls.find("targetStage"); if (itStage != m.controls.end()) curStage = itStage->second;
-  auto itRoom = m.controls.find("roomTarget"); if (itRoom != m.controls.end()) curRoom = itRoom->second;
-
-  addKV("stoveOnOff", String(curOn));
-  addKV("stoveOpMode", String(curMode));
-  addKV("stovePower", String(curStage));
-  addKV("stoveTempTarget", String(curRoom));
-
-  // Diagnostic ESP32 (compatibilité PR #1)
-  addKV("uptime", String(millis() / 1000));
-  addKV("firmware", "2.0.0");
-  addKV("internalTemp", String(temperatureRead(), 1));
-  if (WiFi.status() == WL_CONNECTED) {
-    addKV("mac", WiFi.macAddress());
-    addKV("rssi", String(WiFi.RSSI()));
-    addKV("ssid", wifiSsid);
-    addKV("ip", WiFi.localIP().toString());
-  }
-  json += "}";
-  web.send(200, "application/json", json);
 }
 
 // GET /api/controls & POST /api/controls (V2 JSON + legacy compat)
@@ -1636,8 +1523,6 @@ void setup() {
   web.on("/api/schedule", handleApiSchedule);
   web.on("/api/restart", handleRestart);
   web.on("/api/txgap", handleTxGap);
-  web.on("/restart", handleRestart);
-  web.on("/api/arm", handleArm);
   web.on("/api/wifi", HTTP_POST, handleWifi);
   web.on("/api/forget", HTTP_POST, handleForget);
   web.on("/api/scan", handleScan);
@@ -1659,9 +1544,6 @@ void setup() {
   });
 
   // Routes compatibilité open-firenet & Home Assistant
-  web.on("/api/status", handleApiStatus);
-  web.on("/api/sensors", handleApiSensors);
-  web.on("/reset-wifi", handleForget);
   web.on("/log", handleLog);
 
   web.begin();

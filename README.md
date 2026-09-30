@@ -259,9 +259,8 @@ Open-Firenet V2 provides a clean, unified REST JSON API with natural units (temp
 | `/api/schedule` | POST | Update weekly schedule, slot timings, and setback temperature |
 | `/api/version` | GET | Firmware version, build date, and target platform |
 | `/api/restart` | POST | Software restart of the ESP32 bridge |
-| `/api/status` | GET | *Legacy* status endpoint (retained for backward compatibility) |
-| `/api/sensors` | GET | *Legacy* sensors endpoint (retained for backward compatibility) |
-| `/reset-wifi` | GET / POST | Erase Wi-Fi credentials from NVS and reboot into provisioning AP |
+| `/api/txgap` | GET / POST | Delay between frames sent to the stove, in ms (50–600, default 150) |
+| `/api/forget` | POST | Erase Wi-Fi credentials from NVS and reboot into provisioning AP |
 | `/log` | GET | Plain-text live USB CDC debug log |
 
 ### `GET /api/state` example

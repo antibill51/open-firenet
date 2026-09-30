@@ -19,6 +19,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Check that the web UI header is regenerated
+        run: python3 tools/gen_web_ui.py --check
+
       - name: Run unit test suite
         run: |
           chmod +x test/build_and_test.sh
@@ -39,7 +42,7 @@ jobs:
             ~/.arduino15/packages
             ~/.arduino15/cache_root.sha256
             ~/.arduino15/build-cache
-          key: esp32-build-${{ runner.os }}-${{ hashFiles('open-firenet/open-firenet.ino', 'open-firenet/*.h') }}
+          key: esp32-build-${{ runner.os }}-${{ hashFiles('open-firenet/open-firenet.ino', 'open-firenet/*.h', 'open-firenet/web/*') }}
           restore-keys: |
             esp32-build-${{ runner.os }}-
             esp32-core-3.3.11-${{ runner.os }}
