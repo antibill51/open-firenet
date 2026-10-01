@@ -237,8 +237,12 @@ The names are the official ones of the RIKA cloud `controls` object, in the same
 
 **2.26 / 2.27:** the table has no `bakeTarget` record: position *p* is position *p* above
 for *p* < 5 and *p* + 1 from 5 on (records 0–36). Because the stove stores the *k*-th
-value of a `GET_CONTROLS=1` frame in its record *k*, Open-Firenet only sends the
-five-field frame (revision, onOff, mode, targetStage, roomTarget) to these stoves.
+value of a `GET_CONTROLS=1` frame in its record *k*, the command frame must follow this
+order. The stove then applies **all** its records 1–36, whatever the number of values
+received (read in the 2.27 firmware): every value sent must be the stove's current one
+unless it is the commanded one. Open-Firenet sends records 0–30 in this order once the
+stove has posted them; records 31–36 keep the values the stove reloads itself at each
+`GET_REVISION`.
 
 ### Heating Schedule Slot Encoding
 

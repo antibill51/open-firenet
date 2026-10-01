@@ -546,14 +546,35 @@ public:
 
     bool sendExtended = (model_.controls_pos.size() >= 29 || hasMultiAirCmd || hasScheduleCmd || hasFrostCmd || hasBakeCmd || hasTempOffsetCmd || hasEcoCmd);
     // INDUO 2.26/2.27: the stove stores the k-th pair of GET_CONTROLS=1 in its record k, and its table has no
-    // bakeTarget record (V1 record p = DOMO control p for p < 5, p + 1 after, see v1ToDomoCtrlIndex): the extended
-    // frame below, in DOMO order, would shift every value from record 5 on (heating times, frost, offset...). Only
-    // the five-field frame, validated on real 2.26 and 2.27 stoves, is sent there.
-    // Stoves answering the 2.28 probe get the same five-field frame: it is the one a real LIVO 2.28 accepts (field
-    // report, test/v1-protocol), while the extended frame was never validated on a 2.28 and was sent for every
-    // command there as soon as the controls were registered (controls_pos.size() >= 29).
-    if (induoDialect()) sendExtended = false;
-    if (sendExtended) {
+    // bakeTarget record (V1 record p = DOMO control p for p < 5, p + 1 after, see v1ToDomoCtrlIndex), so the DOMO-
+    // ordered frame below would shift every value from record 5 on. These stoves get their own frame, in V1 order.
+    // Read in the 2.27 disassembly (apply routine fn 0x8004a8b8): records 1..36 are all applied, whatever the number
+    // of pairs received, so every pair sent must carry the stove's current value unless it is the commanded one. The
+    // V1 frame is therefore only sent once the stove has posted every record up to roomTempOffset (DOMO 31).
+    // Stoves answering the 2.28 probe only get the five-field frame: it is the one a real LIVO 2.28 accepts (field
+    // report, test/v1-protocol), while the DOMO-ordered extended frame was never validated on a 2.28.
+    const bool v1Layout = (model_.version_profile == DETECT_V1);
+    if (model_.version_profile == DETECT_V28) sendExtended = false;
+    if (v1Layout && model_.controls_pos.size() < 32) sendExtended = false;
+    if (sendExtended && v1Layout) {
+      model_.controls_pos[6] = ecoMode;
+      model_.controls_pos[23] = fan1On;
+      model_.controls_pos[24] = fan1Level;
+      model_.controls_pos[25] = fan1Area;
+      model_.controls_pos[26] = fan2On;
+      model_.controls_pos[27] = fan2Level;
+      model_.controls_pos[28] = fan2Area;
+      model_.controls_pos[29] = frostActive;
+      model_.controls_pos[30] = frostTemp;
+      model_.controls_pos[31] = tempOffset;
+      // V1 records 0..30 (revision .. roomTempOffset); records 31..36 (room sensor power, debug words) are left to
+      // the stove, which applies the values it reloaded itself at the last GET_REVISION.
+      std::string b = "GET_CONTROLS=1; ";
+      for (int p = 0; p <= 30; p++) {
+        b += ctrlName(p, DETECT_V1) + "=" + std::to_string(model_.controls_pos[v1ToDomoCtrlIndex(p)]) + "; ";
+      }
+      send(b);
+    } else if (sendExtended) {
       bool sendOffset = (model_.controls_pos.size() >= 32 || hasTempOffsetCmd);
       bool sendFrost = (model_.controls_pos.size() >= 31 || hasFrostCmd || sendOffset);
       size_t reqSize = sendOffset ? 32 : (sendFrost ? 31 : 29);

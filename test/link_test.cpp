@@ -689,6 +689,44 @@ int main(){
     CH("eco mode kept in the model", domo.model().controls.at("ecoMode") == 1 && domo.model().controls_pos.size() > 6 && domo.model().controls_pos[6] == 1);
   }
 
+  // INDUO 2.26/2.27 with every control posted by the stove: the extended command goes out in V1 order (no
+  // bakeTarget), records 0..30, carrying the stove's own values except the commanded one.
+  {
+    std::string w; uint32_t c=0;
+    DongleLink v1([&](const uint8_t*d,size_t n){ w.append((const char*)d,n); }, [&](){ return c; });
+    v1.debugSetStage(DongleLink::DETECT_V1);
+    v1.poll();
+    for (char ch : std::string("GET_WIFI_VERSION_FINISHED")) v1.onByte(ch);
+    c += 60; v1.poll();
+    for(int i=0;i<16 && !v1.txIdle();i++){ c+=DongleLink::TX_GAP_MS; v1.poll(); }
+    v1.pollSensors(); v1.pollControls();
+    for(int i=0;i<64 && !v1.txIdle();i++){ c+=DongleLink::TX_GAP_MS; v1.poll(); }
+    // the stove posts all its registered control records (names as registered for a V1 stove)
+    std::string post = "POST_CONTROLS=0; ";
+    for (int p = 0; p < DongleLink::V1_CONTROL_COUNT; p++) {
+      long v = 0;
+      std::string n = ctrlName(p, 2);
+      if (n == "onOff") v = 1; else if (n == "mode") v = 2; else if (n == "targetStage") v = 70; else if (n == "roomTarget") v = 230;
+      else if (n == "heatTimeMon1") v = 7302300; else if (n == "setBackTemp") v = 160; else if (n == "frostProtectionTemp") v = 50;
+      else if (n == "roomTempOffset") v = -3;
+      post += n + "=" + std::to_string(v) + "; ";
+    }
+    for (char ch : post) v1.onByte(ch);
+    c += 60; v1.poll();
+    CH("V1 extended: every control known (DOMO 0..37)", v1.model().controls_pos.size() >= 32 && v1.model().controls_pos[31] == -3);
+    w.clear();
+    v1.applyControls({{"frostProtectionActive",1}});
+    for(int i=0;i<16 && !v1.txIdle();i++){ c+=DongleLink::TX_GAP_MS; v1.poll(); }
+    size_t a = w.find("GET_CONTROLS=1; "), e = w.find("GET_REVISION", a);
+    std::string fr = (a == std::string::npos || e == std::string::npos) ? "" : w.substr(a, e - a);
+    size_t pairs = 0; for (char ch : fr) if (ch == '=') pairs++;
+    CH("V1 extended: V1-ordered frame (roomTarget, ecoMode, heatTimeMon1; no bakeTarget)",
+       fr.find("roomTarget=230; ecoMode=0; heatTimeMon1=7302300; ") != std::string::npos && fr.find("bakeTarget") == std::string::npos);
+    CH("V1 extended: records 0..30 exactly (31 pairs + header), ends with roomTempOffset", pairs == 32 && fr.find("roomTempOffset=-3; ") + 19 == fr.size());
+    CH("V1 extended: commanded frost on, current frost temp / setback kept",
+       fr.find("frostProtectionActive=1; frostProtectionTemp=50; ") != std::string::npos && fr.find("setBackTemp=160; ") != std::string::npos);
+  }
+
   std::cout << ok << " ok, " << ko << " failures\n";
   return ko ? 1 : 0;
 }
