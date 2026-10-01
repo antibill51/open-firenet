@@ -168,13 +168,13 @@ static String jsonState() {
   long buildVer = sensorValue(m, "firmwareBuild", v1 ? 44501 : 58512);
   long warnCode = sensorValue(m, "statusWarning", 0);
 
-  // Air flap values are tenths of a percent (the Rika cloud integrations divide them by 10). A missing record, e.g. on a
-  // stove whose names are not registered yet, is published as null.
+  // Air flap values are whole percents (raw 50 = 50 % on the stove screen, INDUO 2.27, issue #4). A missing record,
+  // e.g. on a stove whose names are not registered yet, is published as null.
   char airFlapsS[16] = "null", airFlapsTgtS[16] = "null";
   auto itAF = m.sensors.find("airFlaps");
-  if (itAF != m.sensors.end()) snprintf(airFlapsS, sizeof airFlapsS, "%.1f", itAF->second / 10.0f);
+  if (itAF != m.sensors.end()) snprintf(airFlapsS, sizeof airFlapsS, "%.1f", (float)itAF->second);
   auto itAT = m.sensors.find("airFlapsTarget");
-  if (itAT != m.sensors.end()) snprintf(airFlapsTgtS, sizeof airFlapsTgtS, "%.1f", itAT->second / 10.0f);
+  if (itAT != m.sensors.end()) snprintf(airFlapsTgtS, sizeof airFlapsTgtS, "%.1f", (float)itAT->second);
   // Without a RIKA room sensor the stove reports the constant 1024 (0x400) as room temperature (read in the 2.27
   // disassembly: record 0 is set to 0x400 when no sensor is present); publish null instead of 102.4 °C.
   bool roomSensor = (rTemp != 1024);

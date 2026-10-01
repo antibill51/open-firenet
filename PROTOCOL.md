@@ -330,8 +330,8 @@ is slot *p* below for *p* < 2 and *p* + 1 from 2 on (87 slots).
 | 10 | idFanSet | `outputIDFanTarget` | Induced-draft fan setpoint (RPM) |
 | 11 | insertionMotor | `outputInsertionMotor` | Insertion motor |
 | 12 | insertionCurrent | `outputInsertionCurrent` | Insertion motor current |
-| 13 | airFlaps | `outputAirFlaps` | Air flaps position, tenths of % (810 = 81.0 %) |
-| 14 | airFlapsTarget | `outputAirFlapsTargetPosition` | Air flaps target position, tenths of % |
+| 13 | airFlaps | `outputAirFlaps` | Air flaps position, % (50 = 50 %, matches the stove screen on a 2.27) |
+| 14 | airFlapsTarget | `outputAirFlapsTargetPosition` | Air flaps target position, % |
 | 15 | burnBackMagnet | `outputBurnBackFlapMagnet` | Burn-back flap magnet |
 | 16 | gridMotor | `outputGridMotor` | Grate motor |
 | 17 | ignition | `outputIgnition` | Igniter |
