@@ -403,7 +403,7 @@ Supported fields:
 - **Eco mode** (firmware 2.29, when `eco_mode_possible` is `true`):
   - `ecoMode` (or `eco_mode`): boolean or `0`/`1`
 
-On firmware 2.26 / 2.27, only `on`, `mode`, `power_percent` and `target_temperature` are applied for now.
+On firmware 2.26 / 2.27 / 2.28, only `on`, `mode`, `power_percent` and `target_temperature` are applied for now.
 
 ---
 

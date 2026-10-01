@@ -1961,11 +1961,11 @@ function applyFanArea(n) {
   }
 }
 
-// Eco mode can only be changed when the stove allows it (sensor ecoModePossible) and on firmware 2.29 / 2.28:
-// on 2.26 / 2.27 (version frame "V1") the bridge only sends the five basic settings.
+// Eco mode can only be changed when the stove allows it (sensor ecoModePossible) and on firmware 2.29:
+// on older firmware (version frame "V1" or "V28") the bridge only sends the five basic settings.
 function ecoEditable(s) {
   const ctrl = (s && s.controls) || {};
-  return ctrl.eco_mode_possible === true && s.version_frame !== 'V1';
+  return ctrl.eco_mode_possible === true && s.version_frame === 'V3';
 }
 function toggleEco() {
   if (!lastState || !ecoEditable(lastState)) return;
