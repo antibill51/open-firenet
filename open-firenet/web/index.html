@@ -2323,7 +2323,7 @@ function renderSensors(sObj, filterText) {
     if (f && !k.toLowerCase().includes(f) && !label.toLowerCase().includes(f)) continue;
     let v = sObj[k];
     if (k === 'roomTemp') v = (v === 1024) ? '--' : (v / 10).toFixed(1) + ' °C';   // 1024 = no room sensor
-    else if (k === 'airFlaps' || k === 'airFlapsTarget') v = v + ' %';
+    else if (k === 'airFlaps' || k === 'airFlapsTarget') v = (v / 10).toFixed(1) + ' %';
     else if (k === 'flame' || k === 'boardSensor') v = v + ' °C';
     else if (k === 'pelletsTotal' || k === 'serviceCountdown') v = v + ' kg';
     else if (k === 'pelletHours') v = v + ' h';

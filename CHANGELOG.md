@@ -1,10 +1,5 @@
 # Changelog
 
-## Non publié
-
-### Fixes
-- Air flaps position and target were shown ten times too small (5 % instead of 50 %), in the API, the web page and Home Assistant.
-
 ## v3.0.0 (2026-10-01)
 
 ### Features
