@@ -1,5 +1,10 @@
 # Changelog
 
+## Non publié
+
+### Fixes
+- Web page, "Counters & maintenance" card: the remaining service amount and the pellet hours no longer overlap on wide screens.
+
 ## v3.0.0 (2026-10-01)
 
 ### Features
