@@ -4,9 +4,12 @@
 
 ### Features
 - The web page now tells why there is no link with the stove: bridge not connected to the stove over USB (wrong port on the board, charge-only cable, stove off), or connected but the stove stays silent. `/api/state` reports the same under `usb` (`host_connected`, `rx_bytes`).
+- Web page header: the Open-Firenet version is shown next to the title, and a single badge gives the stove model, its firmware version and the link state (e.g. "DOMO v2.29 connected"). The badge turns grey when the stove is not connected.
 
 ### Fixes
 - Stoves on firmware 2.28 (e.g. LIVO): the link works again. v3.0.0 and v3.1.0 talked to these stoves in the wrong message format, so the stove never answered and showed UW29.
+- Web page header on phones: the title and the badge are no longer split over two lines.
+- Web page: while no data has been received from the stove, the page says "Waiting for the stove" and greys out the values and controls, instead of showing a DOMO in standby with zero values.
 
 ## v3.1.0 (2026-10-02)
 
