@@ -3,7 +3,7 @@
 ## Non publié
 
 ### Fixes
-- Web page, "Counters & maintenance" card: the two counters no longer overlap on wide screens, and their labels are clearer ("Next service in: … kg", "Running time: … h").
+- Web page, "Counters & maintenance" card: the two counters no longer overlap on wide screens, and their labels are clearer ("Running time: … h", then "Service in: … kg" right above its bar).
 - Web page: the service bar is now a gauge of what is left before the next service, based on the interval reported by the stove (700 kg when it reports none). It turns orange below 20 %, and hovering it shows the figures.
 - Web page, Settings tab: at most two cards per row; the eco mode card now sits on its own row below frost protection and room temperature calibration.
 
