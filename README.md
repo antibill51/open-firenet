@@ -243,7 +243,7 @@ What matters is the **mainboard firmware version** of the stove (menu Info on th
 | Mainboard firmware | Status | Notes |
 |:---:|:---|:---|
 | **2.29** (e.g. DOMO, DOMO BACK, PRIMO MULTIAIR) | ✅ Supported | All values and settings |
-| **2.26 / 2.27** (e.g. INDUO) | ✅ Supported | All values read; on/off, mode, heating power and target temperature can be changed, the other settings are read-only for now |
+| **2.26 / 2.27** (e.g. INDUO) | ✅ Supported | All values and settings (no MultiAir / baking oven on these stoves) |
 | **2.28** (e.g. INDUO II, SONO) | 🚧 Not yet | Detected, but the stove does not complete the link yet |
 | **2.25 and older** | ❓ Untested | Feedback welcome |
 
@@ -400,10 +400,11 @@ Supported fields:
   - `bakeTarget` (or `bake_target_temperature`, `bake_target`, `bakeTemp`, `bake`): integer in °C (`130` – `340` °C, DOMO BACK model 23)
 - **Room Temperature Offset Calibration**:
   - `roomTempOffset` (or `room_temperature_offset`, `room_temp_offset`, `tempOffset`): float in °C (`-4.0` – `+4.0` °C, step 0.1) or integer in tenths (`-40` – `+40`)
-- **Eco mode** (firmware 2.29, when `eco_mode_possible` is `true`):
+- **Eco mode** (when `eco_mode_possible` is `true`):
   - `ecoMode` (or `eco_mode`): boolean or `0`/`1`
 
-On firmware 2.26 / 2.27 / 2.28, only `on`, `mode`, `power_percent` and `target_temperature` are applied for now.
+On firmware 2.26 / 2.27 the settings are sent in the order of their own record table (no baking oven record).
+On firmware 2.28, only `on`, `mode`, `power_percent` and `target_temperature` are applied for now.
 
 ---
 

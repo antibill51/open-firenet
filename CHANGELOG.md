@@ -2,6 +2,9 @@
 
 ## Non publié
 
+### Features
+- Stoves on firmware 2.26 / 2.27 (e.g. INDUO): the heating schedule, frost protection, room sensor calibration and eco mode can now be changed too, not only on/off, mode, power and temperature.
+
 ### Fixes
 - Web page, "Counters & maintenance" card: the two counters no longer overlap on wide screens, and their labels are clearer ("Running time: … h", then "Service in: … kg" right above its bar).
 - Web page: the service bar is now a gauge of what is left before the next service, based on the interval reported by the stove (700 kg when it reports none). It turns orange below 20 %, and hovering it shows the figures.
