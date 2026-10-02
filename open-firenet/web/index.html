@@ -235,6 +235,7 @@ main { max-width: 960px; margin: 0 auto; padding: 20px; display: flex; flex-dire
   margin-top: 4px;
 }
 .progress-fill { height: 100%; background: linear-gradient(90deg, var(--amber), var(--green)); transition: width 0.5s; }
+.progress-fill.low { background: var(--amber); }
 
 /* Control Deck */
 .control-deck {
@@ -1064,6 +1065,7 @@ const I18N = {
     pelletsHeader: "Compteurs & Entretien",
     serviceCountPrefix: "Prochain entretien dans : ",
     pelletHoursPrefix: "Fonctionnement : ",
+    serviceBarTitle: "Reste avant le prochain entretien : ",
     deckTitle: "Pilotage du Poêle",
     subtabDirect: "Commandes directes",
     subtabSched: "Programmation",
@@ -1254,6 +1256,7 @@ const I18N = {
     pelletsHeader: "Counters & Service",
     serviceCountPrefix: "Next service in: ",
     pelletHoursPrefix: "Running time: ",
+    serviceBarTitle: "Left before the next service: ",
     deckTitle: "Stove Controls",
     subtabDirect: "Direct Controls",
     subtabSched: "Schedule",
@@ -1444,6 +1447,7 @@ const I18N = {
     pelletsHeader: "Zähler & Wartung",
     serviceCountPrefix: "Nächste Wartung in: ",
     pelletHoursPrefix: "Betriebszeit: ",
+    serviceBarTitle: "Verbleibend bis zur nächsten Wartung: ",
     deckTitle: "Ofensteuerung",
     subtabDirect: "Direktsteuerung",
     subtabSched: "Heizzeiten",
@@ -2444,8 +2448,14 @@ async function tick() {
     document.getElementById('pelletHours').textContent = pHours.toLocaleString(bcpLanguageTag);
     const sCount = sens.service_countdown_kg !== undefined ? sens.service_countdown_kg : (rawS.serviceCountdown !== undefined ? rawS.serviceCountdown : (s.sensors_pos ? s.sensors_pos[50] : 700));
     document.getElementById('serviceCount').textContent = sCount.toLocaleString(bcpLanguageTag);
-    const sPct = Math.min(100, Math.max(0, Math.round((sCount / 700) * 100)));
-    document.getElementById('serviceBar').style.width = sPct + '%';
+    // Gauge of what is left before the next service: full right after a service, empty when it is due. The
+    // interval is the stove's own kgTillCleaning when it reports one, 700 kg otherwise.
+    const sInterval = rawS.kgTillCleaning > 0 ? rawS.kgTillCleaning : 700;
+    const sPct = Math.min(100, Math.max(0, Math.round((sCount / sInterval) * 100)));
+    const sBar = document.getElementById('serviceBar');
+    sBar.style.width = sPct + '%';
+    sBar.classList.toggle('low', sPct < 20);
+    sBar.parentElement.title = t.serviceBarTitle + sCount.toLocaleString(bcpLanguageTag) + ' / ' + sInterval.toLocaleString(bcpLanguageTag) + ' kg';
 
     // Model & Net
     const modelNames = {
