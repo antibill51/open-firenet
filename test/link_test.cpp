@@ -547,23 +547,18 @@ int main(){
     c11 += 60; l11.poll();
     CH("2.28: generation=1 (DOMO protocol) after ack", l11.model().generation == 1 && l11.model().version_ack);
     for(int i=0;i<8 && !l11.txIdle();i++){ c11+=DongleLink::TX_GAP_MS; l11.poll(); }
-    // Read on a real RIKA SONO 2.28 (2026-09-30): the CDC dialect + hex ssid + protocol=3 (the DOMO wire format)
-    // was still never answered even with status sent right away -- so a 2.28 now gets the FIRENET dialect (same
-    // as V1) instead, not just an earlier CDC-dialect status push.
-    CH("2.28: status uses the FIRENET dialect (same as V1), not DOMO's CDC one", w11.find("GET_FIRENET_STATUS=0;\n") != std::string::npos);
+    // Field-proven on a real LIVO 2.28 (2026-10-02): the stove answers the CDC dialect (the DOMO wire format: CDC
+    // header, hex ssid, protocol 3) with the status pushed right after the ack and an 8-digit ID. The FIRENET
+    // dialect sent to these stoves by v3.0.0 / v3.1.0 was never answered.
+    CH("2.28: status uses the CDC dialect, like DOMO", w11.find("GET_CDCDEVICE_STATUS=0;\n") != std::string::npos && w11.find("GET_FIRENET_STATUS") == std::string::npos);
     CH("2.28: status carries an 8-digit ID, not DOMO/V3's 7-digit default",
        w11.find("\n00000000\n") != std::string::npos && w11.find("\n0000000\n") == std::string::npos);
-    CH("2.28: ssid sent in plain text, not hex-encoded like DOMO's", w11.find("\nMonSSID\n") != std::string::npos);
-    // Sensor/control tables are DOMO-identical (unshifted), unlike V1's: registering must NOT skip DOMO
-    // position 2 (sensors) or 5 (controls, bakeTarget) the way registerV1Sensors/Controls do for a real V1.
+    CH("2.28: ssid hex-encoded and protocol 3, like DOMO", w11.find("\n3\n" + hexEncode("MonSSID") + "\n") != std::string::npos);
     w11.clear();
-    l11.pollSensors();
+    l11.requestStatus();
     for(int i=0;i<8 && !l11.txIdle();i++){ c11+=DongleLink::TX_GAP_MS; l11.poll(); }
-    CH("2.28: sensor registration keeps DOMO position 2 (bakeTemp), unshifted", w11.find("GET_SENSORS=0; roomTemp=0; flame=0; bakeTemp=0; errMask32=0; ") != std::string::npos);
-    w11.clear();
-    l11.pollControls();
-    for(int i=0;i<8 && !l11.txIdle();i++){ c11+=DongleLink::TX_GAP_MS; l11.poll(); }
-    CH("2.28: control registration keeps bakeTarget (DOMO 5), unshifted", w11.find("bakeTarget=0; ") != std::string::npos);
+    CH("2.28: status poll is the bare POST_CDCDEVICE_STATUS request", w11.find("POST_CDCDEVICE_STATUS") != std::string::npos && w11.find("FIRENET") == std::string::npos);
+    CH("2.28: not the FIRENET (2.26/2.27) dialect", !l11.induoDialect());
   }
   // 10) DOMO/V3 unchanged: no status pushed right after ack (still deferred to the .ino's own phase logic),
   // and its own 7-digit ID default is untouched.

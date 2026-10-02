@@ -1004,9 +1004,8 @@ void loop() {
     if (WiFi.status() == WL_CONNECTED) g_link->setRssi(WiFi.RSSI());  // RSSI réel (§7.4)
 
     if (g_link->induoDialect()) {
-      // INDUO family (V1 = 2.26/2.27, and a detected INDUO II 2.28): names registered once, status every ~20s.
-      // Keyed on induoDialect(), not generation: a detected 2.28 has generation 1 (DOMO tables) but must not run
-      // the DOMO loop below, whose phase 3 re-sends the full status every 2s.
+      // Firmware 2.26/2.27 (V1): names registered once, status every ~20s. A detected 2.28 runs the DOMO loop
+      // below, the one a real LIVO 2.28 works with (see induoDialect()).
       static uint32_t v1Cycle = 0;
       v1Cycle++;
       if (v1Cycle % 10 == 0) {

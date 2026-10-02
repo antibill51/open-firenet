@@ -68,7 +68,11 @@ worked first. `version_frame` in `/api/state` reports it (`V3`, `V28`, `V1`).
 
 - **2.29:** The stove pushes an initial `POST_CDCDEVICE_STATUS`.
   The dongle answers with a `GET_CDCDEVICE_STATUS` carrying blank credentials while unprovisioned, or full credentials once connected.
-- **2.26 / 2.27 (and 2.28):** The dongle must push `GET_FIRENET_STATUS=0;\n` (19 fields)
+- **2.28:** Same CDC status commands as 2.29 (hex SSID, protocol `3`), but the dongle
+  pushes its `GET_CDCDEVICE_STATUS` right after the version reply, with an **8-digit id**.
+  Confirmed on a real LIVO 2.28; a bare `POST_CDCDEVICE_STATUS` is answered with the
+  stove's status, `POST_FIRENET_STATUS` is ignored.
+- **2.26 / 2.27:** The dongle must push `GET_FIRENET_STATUS=0;\n` (19 fields)
   right after the version reply. The stove decodes no command before this status is
   accepted; the link is then decided at the next `TRANSFER_COMPLETED`. The **id must be
   exactly 8 digits and the token 8 printable characters**, otherwise the stove raises
@@ -562,5 +566,6 @@ Open-Firenet also restarts itself after 60 s without any data from the stove; on
   2.26 / 2.27 echo the registered names: parse them by name.
 - `roomTarget` / room temperature are **×10** on the wire in both directions.
 - `GET_REVISION` must precede `TRANSFER_COMPLETED`, or nothing is returned.
-- 2.26 / 2.27 (and 2.28) use `GET_FIRENET_STATUS` / `POST_FIRENET_STATUS` (19 fields,
-  plain-text SSID, 8-digit id) instead of the CDC device-status commands.
+- 2.26 / 2.27 use `GET_FIRENET_STATUS` / `POST_FIRENET_STATUS` (19 fields,
+  plain-text SSID, 8-digit id) instead of the CDC device-status commands. 2.28 uses the
+  CDC commands, with an 8-digit id.
