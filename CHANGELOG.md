@@ -2,6 +2,9 @@
 
 ## Non publié
 
+### Features
+- The web page now tells why there is no link with the stove: bridge not connected to the stove over USB (wrong port on the board, charge-only cable, stove off), or connected but the stove stays silent. `/api/state` reports the same under `usb` (`host_connected`, `rx_bytes`).
+
 ### Fixes
 - Stoves on firmware 2.28 (e.g. LIVO): the link works again. v3.0.0 and v3.1.0 talked to these stoves in the wrong message format, so the stove never answered and showed UW29.
 

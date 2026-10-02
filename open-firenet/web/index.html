@@ -573,6 +573,14 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
     </div>
   </div>
 
+  <div id="linkHintBanner" style="display:none;background:rgba(245,158,11,0.15);border:1px solid var(--amber);border-radius:10px;padding:12px 16px;font-size:0.9rem;align-items:center;gap:12px">
+    <span style="font-size:1.5rem">🔌</span>
+    <div>
+      <b id="linkHintTitle"></b>
+      <p id="linkHintDesc" style="font-size:0.8rem;color:var(--text-dim);margin-top:2px"></p>
+    </div>
+  </div>
+
   <div id="hopperLidBanner" style="display:none;background:rgba(245,158,11,0.15);border:1px solid var(--amber);border-radius:10px;padding:12px 16px;font-size:0.9rem;align-items:center;gap:12px">
     <span style="font-size:1.5rem">⚠️</span>
     <div>
@@ -1154,6 +1162,10 @@ const I18N = {
     apBannerTitle: "Mode Point d'Accès actif",
     apBannerDesc: "Sélectionnez votre réseau WiFi ci-dessous pour connecter Open-Firenet à votre box.",
     hopperLidBannerTitle: "Trappe du réservoir à pellets ouverte",
+    linkHintNoHostTitle: "La clé n'est pas reliée au poêle en USB",
+    linkHintNoHostDesc: "Branchez le poêle sur le port USB natif de la carte (marqué « USB », pas « UART » ou « COM »), avec un câble de données, et vérifiez que le poêle est sous tension.",
+    linkHintSilentTitle: "Le poêle ne répond pas",
+    linkHintSilentDesc: "La clé est bien branchée en USB mais le poêle n'a encore rien envoyé. Coupez puis remettez le courant du poêle ; si rien ne change, envoyez le journal (onglet Logs CDC).",
     ssidPlaceholder: "Nom du réseau (SSID)",
     passPlaceholder: "Mot de passe",
     btnForgetWifi: "Oublier le WiFi",
@@ -1345,6 +1357,10 @@ const I18N = {
     apBannerTitle: "Access Point mode active",
     apBannerDesc: "Select your WiFi network below to connect Open-Firenet to your router.",
     hopperLidBannerTitle: "Pellet hopper lid open",
+    linkHintNoHostTitle: "The bridge is not connected to the stove over USB",
+    linkHintNoHostDesc: "Plug the stove into the board's native USB port (labelled \"USB\", not \"UART\" or \"COM\"), with a data cable, and check that the stove is powered.",
+    linkHintSilentTitle: "The stove does not answer",
+    linkHintSilentDesc: "The bridge is connected over USB but the stove has not sent anything yet. Power-cycle the stove; if nothing changes, send the log (CDC Logs tab).",
     ssidPlaceholder: "Network Name (SSID)",
     passPlaceholder: "Password",
     btnForgetWifi: "Forget WiFi",
@@ -1536,6 +1552,10 @@ const I18N = {
     apBannerTitle: "Access Point Modus aktiv",
     apBannerDesc: "Wählen Sie unten Ihr WLAN aus, um Open-Firenet mit Ihrem Router zu verbinden.",
     hopperLidBannerTitle: "Pelletbehälter-Deckel offen",
+    linkHintNoHostTitle: "Der Stick ist nicht per USB mit dem Ofen verbunden",
+    linkHintNoHostDesc: "Den Ofen an den nativen USB-Anschluss der Platine anschließen (mit „USB“ beschriftet, nicht „UART“ oder „COM“), mit einem Datenkabel, und prüfen, ob der Ofen Strom hat.",
+    linkHintSilentTitle: "Der Ofen antwortet nicht",
+    linkHintSilentDesc: "Der Stick ist per USB verbunden, aber der Ofen hat noch nichts gesendet. Ofen kurz vom Strom trennen; wenn sich nichts ändert, das Protokoll senden (Reiter CDC-Logs).",
     ssidPlaceholder: "Netzwerkname (SSID)",
     passPlaceholder: "Passwort",
     btnForgetWifi: "WLAN vergessen",
@@ -2373,6 +2393,20 @@ async function tick() {
     }
 
     document.getElementById('connState').textContent = s.version_ack ? t.connected : t.waiting;
+
+    // Why there is no link yet: not seen by any USB host, or seen but the stove stays silent.
+    const usb = s.usb || null;
+    const hint = document.getElementById('linkHintBanner');
+    let hintKey = '';
+    if (!s.version_ack && usb && s.wifi_mode !== 'AP') {
+      if (usb.host_connected === false) hintKey = 'linkHintNoHost';
+      else if (usb.rx_bytes === 0 && s.uptime_seconds > 60) hintKey = 'linkHintSilent';
+    }
+    hint.style.display = hintKey ? 'flex' : 'none';
+    if (hintKey) {
+      document.getElementById('linkHintTitle').textContent = t[hintKey + 'Title'];
+      document.getElementById('linkHintDesc').textContent = t[hintKey + 'Desc'];
+    }
 
     // Hero State
     const stObj = s.stove || {};

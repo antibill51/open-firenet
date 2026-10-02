@@ -337,6 +337,10 @@ static String jsonState() {
   const char* verFrameLabel = m.version_profile == 0 ? "V3" : (m.version_profile == 1 ? "V28" : (m.version_profile == 2 ? "V1" : "?"));
   j += "\"version_frame\":\"" + String(verFrameLabel) + "\",";
   j += "\"generation\":" + String(m.generation) + ",";
+  // USB link diagnostics: host_connected = a USB host (the stove) has enumerated the bridge on its native USB port;
+  // rx_bytes = bytes received from the stove since boot. Both stay false / 0 when the stove is plugged into the
+  // board's UART/COM port, when the cable has no data wires, or when the stove is off.
+  j += "\"usb\":{\"host_connected\":" + String((bool)USB ? "true" : "false") + ",\"rx_bytes\":" + String(m.rx_bytes) + "},";
   j += "\"frames_in\":" + String(m.frames_in) + ",";
   j += "\"frames_out\":" + String(m.frames_out) + ",";
   j += "\"revision\":" + String((long)m.revision) + ",";

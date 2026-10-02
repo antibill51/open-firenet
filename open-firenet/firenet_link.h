@@ -30,6 +30,7 @@ struct StoveModel {
   int  generation = 0;                         // 1 = CDCDEVICE, 2 = FIRENET (§6.4)
   int  version_profile = -1;                   // acknowledged version frame: -1 none, 0 = V3, 1 = V1
   uint32_t frames_in = 0, frames_out = 0, last_rx_ms = 0;
+  uint32_t rx_bytes = 0;   // every byte received from the stove, including the 0x16 probe: 0 means the stove never talked
 };
 
 class DongleLink {
@@ -57,6 +58,7 @@ public:
 
   // --- réception : appeler avec chaque octet reçu du poêle -------------------
   void onByte(uint8_t b) {
+    model_.rx_bytes++;
     if (b == 0x16) {
       // Octet de sonde SYN : émis par le poêle au boot (VA 0x80039f74).
       // On répond sans attendre que la file TX soit vide (le watchdog poêle *0x1ac4
