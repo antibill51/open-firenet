@@ -549,7 +549,10 @@ public:
     // bakeTarget record (V1 record p = DOMO control p for p < 5, p + 1 after, see v1ToDomoCtrlIndex): the extended
     // frame below, in DOMO order, would shift every value from record 5 on (heating times, frost, offset...). Only
     // the five-field frame, validated on real 2.26 and 2.27 stoves, is sent there.
-    if (model_.version_profile == DETECT_V1) sendExtended = false;
+    // Stoves answering the 2.28 probe get the same five-field frame: it is the one a real LIVO 2.28 accepts (field
+    // report, test/v1-protocol), while the extended frame was never validated on a 2.28 and was sent for every
+    // command there as soon as the controls were registered (controls_pos.size() >= 29).
+    if (induoDialect()) sendExtended = false;
     if (sendExtended) {
       bool sendOffset = (model_.controls_pos.size() >= 32 || hasTempOffsetCmd);
       bool sendFrost = (model_.controls_pos.size() >= 31 || hasFrostCmd || sendOffset);

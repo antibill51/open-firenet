@@ -649,6 +649,27 @@ int main(){
     CH("V1 applyControls sends the five-field frame", w.find("GET_CONTROLS=1; revision=") != std::string::npos && w.find("onOff=1; ") != std::string::npos);
     CH("V1 applyControls never sends the DOMO-ordered extended frame", w.find("bakeTarget=") == std::string::npos && w.find("frostProtectionActive=") == std::string::npos);
 
+    // Same for a stove that answered the 2.28 probe, with every control registered (controls_pos.size() >= 29).
+    {
+      std::string w28; uint32_t c28=0;
+      DongleLink v28([&](const uint8_t*d,size_t n){ w28.append((const char*)d,n); }, [&](){ return c28; });
+      v28.debugSetStage(DongleLink::DETECT_V28);
+      v28.poll();
+      for (char ch : std::string("GET_CDCDEVICE_VERSION_FINISHED")) v28.onByte(ch);
+      c28 += 60; v28.poll();
+      for(int i=0;i<16 && !v28.txIdle();i++){ c28+=DongleLink::TX_GAP_MS; v28.poll(); }
+      std::string post = "POST_CONTROLS=0; ";
+      for (int p = 0; p < DongleLink::V28_CONTROL_COUNT; p++) post += ctrlName(p) + "=" + std::to_string(p == 4 ? 210 : 0) + "; ";
+      for (char ch : post) v28.onByte(ch);
+      c28 += 60; v28.poll();
+      w28.clear();
+      v28.applyControls({{"onOff",1}});
+      for(int i=0;i<16 && !v28.txIdle();i++){ c28+=DongleLink::TX_GAP_MS; v28.poll(); }
+      CH("2.28 applyControls sends the five-field frame even with all controls known",
+         v28.model().controls_pos.size() >= 29 && w28.find("GET_CONTROLS=1; revision=") != std::string::npos &&
+         w28.find("roomTarget=210; ") != std::string::npos && w28.find("bakeTarget=") == std::string::npos && w28.find("heatTimeMon1=") == std::string::npos);
+    }
+
     std::string wd; uint32_t cd=0;
     DongleLink domo([&](const uint8_t*d,size_t n){ wd.append((const char*)d,n); }, [&](){ return cd; });
     domo.debugSetStage(DongleLink::DETECT_V3);
