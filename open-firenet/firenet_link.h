@@ -130,9 +130,13 @@ public:
   // A detected 2.28 is mapped to generation 1 (the DOMO/V3 protocol), not a new generation value: the 2.28
   // sensor/control table is DOMO-identical position for position (no shift; only the 2.27 table is shifted,
   // see v1ToDomoIndex/v1ToDomoCtrlIndex), and its command chain also accepts GET_CDCDEVICE_STATUS, the dialect
-  // DOMO uses -- so once acked, a 2.28 is indistinguishable from a DOMO for everything that follows. Which
-  // probe actually answered is kept in model_.version_profile (0=DOMO/V3, 1=INDUO II 2.28, 2=INDUO V1) for
-  // logging only.
+  // DOMO uses -- so once acked, a 2.28 is driven like a DOMO: CDC status dialect (GET/POST_CDCDEVICE_STATUS,
+  // hex ssid, protocol "3") and the DOMO polling loop. Field-proven on a real LIVO 2.28 (log of 2026-10-02: the
+  // stove answers every POST_CDCDEVICE_STATUS, echoes our status and posts sensors/controls) and consistent with
+  // a SONO 2.28 answering only the CDC status request (issue #4). The FIRENET dialect tried in v3.0.0 / v3.1.0
+  // for these stoves was never answered. Three things differ from a DOMO: the status is pushed right after the
+  // ack, with an 8-digit ID (pushStatus), and commands use the five-field frame (applyControls). Which probe
+  // answered is kept in model_.version_profile (0=DOMO/V3, 1=2.28, 2=INDUO V1).
   enum { DETECT_V3 = 0, DETECT_V28 = 1, DETECT_V1 = 2, DETECT_STAGE_COUNT = 3 };
   struct VersionProfile { const char* prefix; int bl; int app; int rev; int dt; };
   static const VersionProfile& stageProfile(int stage) {
@@ -153,8 +157,9 @@ public:
   // official frame for the INDUO II 2.28 era is GET_WIFI_VERSION_GET_CDCDEVICE_VERSION=0; ... DT=1;"). UNTESTED:
   // this is the next thing to confirm on real hardware, not proven by disassembly (2.28's status handler was
   // never fully read, only its recognized command keywords).
-  int dt() const { return model_.version_profile == DETECT_V3 ? 3 : 1; }
-  bool induoDialect() const { return model_.version_profile == DETECT_V1 || model_.version_profile == DETECT_V28; }
+  int dt() const { return model_.version_profile == DETECT_V1 ? 1 : 3; }
+  // FIRENET dialect (status header, plain ssid, protocol "1", names registered once): 2.26 / 2.27 only.
+  bool induoDialect() const { return model_.version_profile == DETECT_V1; }
 
   // Advances to the next family after STAGE_TIMEOUT_MS of silence on the current one. Time-based rather than a
   // per-call counter: sendVersion() can fire more than once for a single real event (the immediate SYN-byte
@@ -733,7 +738,8 @@ private:
       if (detect_stage_ == DETECT_V3 || detect_stage_ == DETECT_V28) {
         model_.generation = 1; model_.version_ack = true;               // 2.28 reuses the DOMO/V3 protocol, see stageProfile
         model_.version_profile = detect_stage_; last_good_stage_ = detect_stage_; post_ack_probe_streak_ = 0;
-        // INDUO II 2.28 only (not DOMO/V3): request status right away, like V1. Read 2026-09-29 on a real RIKA
+        // 2.28 only (not DOMO/V3): push the status right away, in the CDC dialect (the flow a real LIVO 2.28
+        // works with, 2026-10-02). First seen as needed 2026-09-29 on a real RIKA
         // SONO (issue #4, darkranger555): the version ack alone did not unlock anything -- GET_SENSORS/
         // GET_REVISION/TRANSFER_COMPLETED all went unanswered for ~50s, then the stove started firing its
         // "nothing decoded" silence reply. On the INDUO 2.27 the decoder only starts processing commands once

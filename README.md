@@ -244,7 +244,7 @@ What matters is the **mainboard firmware version** of the stove (menu Info on th
 |:---:|:---|:---|
 | **2.29** (e.g. DOMO, DOMO BACK, PRIMO MULTIAIR) | ✅ Supported | All values and settings |
 | **2.26 / 2.27** (e.g. INDUO) | ✅ Supported | All values and settings (no MultiAir / baking oven on these stoves) |
-| **2.28** (e.g. INDUO II, SONO) | 🚧 Not yet | Detected, but the stove does not complete the link yet |
+| **2.28** (e.g. LIVO, INDUO II, SONO) | ⚠️ Partial | Works on a LIVO 2.28 (values, on/off, mode, power, target temperature). A SONO 2.28 does not complete the link yet |
 | **2.25 and older** | ❓ Untested | Feedback welcome |
 
 ---
