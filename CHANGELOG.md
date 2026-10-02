@@ -1,6 +1,6 @@
 # Changelog
 
-## Non publié
+## v3.1.0 (2026-10-02)
 
 ### Features
 - Stoves on firmware 2.26 / 2.27 (e.g. INDUO): the heating schedule, frost protection, room sensor calibration and eco mode can now be changed too, not only on/off, mode, power and temperature.
