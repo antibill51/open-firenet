@@ -3,7 +3,7 @@
 ## Non publié
 
 ### Fixes
-- Web page, "Counters & maintenance" card: the remaining service amount and the pellet hours no longer overlap on wide screens.
+- Web page, "Counters & maintenance" card: the two counters no longer overlap on wide screens, and their labels are clearer ("Next service in: … kg", "Running time: … h").
 
 ## v3.0.0 (2026-10-01)
 

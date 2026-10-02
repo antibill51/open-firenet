@@ -648,8 +648,8 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
       </div>
       <div class="card-footer" style="display:block">
         <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 10px;font-size:0.75rem;margin-bottom:4px">
-          <span style="white-space:nowrap"><span id="lblServiceCountPrefix">Service restant : </span><b id="serviceCount">--</b> kg</span>
-          <span style="white-space:nowrap"><b id="pelletHours">--</b><span id="lblPelletHoursSuffix"> h granulés</span></span>
+          <span style="white-space:nowrap"><span id="lblServiceCountPrefix">Prochain entretien dans : </span><b id="serviceCount">--</b> kg</span>
+          <span style="white-space:nowrap"><span id="lblPelletHoursPrefix">Fonctionnement : </span><b id="pelletHours">--</b> h</span>
         </div>
         <div class="progress-bar"><div class="progress-fill" id="serviceBar" style="width:100%"></div></div>
       </div>
@@ -1062,8 +1062,8 @@ const I18N = {
     modePrefix: "Mode : ",
     stageTgtPrefix: "Cible : ",
     pelletsHeader: "Compteurs & Entretien",
-    serviceCountPrefix: "Service restant : ",
-    pelletHoursSuffix: " h granulés",
+    serviceCountPrefix: "Prochain entretien dans : ",
+    pelletHoursPrefix: "Fonctionnement : ",
     deckTitle: "Pilotage du Poêle",
     subtabDirect: "Commandes directes",
     subtabSched: "Programmation",
@@ -1252,8 +1252,8 @@ const I18N = {
     modePrefix: "Mode: ",
     stageTgtPrefix: "Target: ",
     pelletsHeader: "Counters & Service",
-    serviceCountPrefix: "Service countdown: ",
-    pelletHoursSuffix: " h pellets",
+    serviceCountPrefix: "Next service in: ",
+    pelletHoursPrefix: "Running time: ",
     deckTitle: "Stove Controls",
     subtabDirect: "Direct Controls",
     subtabSched: "Schedule",
@@ -1442,8 +1442,8 @@ const I18N = {
     modePrefix: "Modus: ",
     stageTgtPrefix: "Ziel: ",
     pelletsHeader: "Zähler & Wartung",
-    serviceCountPrefix: "Wartung in: ",
-    pelletHoursSuffix: " h Pellets",
+    serviceCountPrefix: "Nächste Wartung in: ",
+    pelletHoursPrefix: "Betriebszeit: ",
     deckTitle: "Ofensteuerung",
     subtabDirect: "Direktsteuerung",
     subtabSched: "Heizzeiten",
@@ -1624,7 +1624,7 @@ function applyLang() {
   document.getElementById('lblStageTgtPrefix').textContent = t.stageTgtPrefix;
   document.getElementById('lblPelletsHeader').textContent = t.pelletsHeader;
   document.getElementById('lblServiceCountPrefix').textContent = t.serviceCountPrefix;
-  document.getElementById('lblPelletHoursSuffix').textContent = t.pelletHoursSuffix;
+  document.getElementById('lblPelletHoursPrefix').textContent = t.pelletHoursPrefix;
   if (document.getElementById('lblDeckTitle')) document.getElementById('lblDeckTitle').textContent = t.deckTitle;
   if (document.getElementById('lblSubtabDirect')) document.getElementById('lblSubtabDirect').textContent = t.subtabDirect;
   if (document.getElementById('lblSubtabSched')) document.getElementById('lblSubtabSched').textContent = t.subtabSched;
