@@ -1,6 +1,6 @@
 # Changelog
 
-## Non publié
+## v3.2.0 (2026-10-03)
 
 ### Features
 - The web page now tells why there is no link with the stove: bridge not connected to the stove over USB (wrong port on the board, charge-only cable, stove off), or connected but the stove stays silent. `/api/state` reports the same under `usb` (`host_connected`, `rx_bytes`).
