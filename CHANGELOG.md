@@ -9,6 +9,7 @@
 ### Fixes
 - Stoves on firmware 2.28 (e.g. LIVO): the link works again. v3.0.0 and v3.1.0 talked to these stoves in the wrong message format, so the stove never answered and showed UW29.
 - Web page header on phones: the title and the badge are no longer split over two lines.
+- Web page: while no data has been received from the stove, the page says "Waiting for the stove" and greys out the values and controls, instead of showing a DOMO in standby with zero values.
 
 ## v3.1.0 (2026-10-02)
 

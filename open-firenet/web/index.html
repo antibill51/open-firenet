@@ -239,6 +239,7 @@ main { max-width: 960px; margin: 0 auto; padding: 20px; display: flex; flex-dire
 }
 .progress-fill { height: 100%; background: linear-gradient(90deg, var(--amber), var(--green)); transition: width 0.5s; }
 .progress-fill.low { background: var(--amber); }
+main.no-data .grid-metrics, main.no-data .control-deck, main.no-data #powerBtn { opacity: 0.35; pointer-events: none; }
 
 /* Control Deck */
 .control-deck {
@@ -1061,6 +1062,8 @@ const I18N = {
     waiting: "Attente poêle",
     connected: "Poêle connecté",
     connectedShort: "connecté",
+    noDataTitle: "En attente du poêle",
+    noDataDesc: "Aucune donnée reçue du poêle pour l'instant",
     offline: "Hors ligne",
     commError: "Erreur de communication",
     powerOn: "Allumer",
@@ -1257,6 +1260,8 @@ const I18N = {
     waiting: "Waiting for stove",
     connected: "Stove connected",
     connectedShort: "connected",
+    noDataTitle: "Waiting for the stove",
+    noDataDesc: "No data received from the stove yet",
     offline: "Offline",
     commError: "Communication error",
     powerOn: "Turn On",
@@ -1453,6 +1458,8 @@ const I18N = {
     waiting: "Warte auf Ofen",
     connected: "Ofen verbunden",
     connectedShort: "verbunden",
+    noDataTitle: "Warte auf den Ofen",
+    noDataDesc: "Noch keine Daten vom Ofen empfangen",
     offline: "Offline",
     commError: "Kommunikationsfehler",
     powerOn: "Einschalten",
@@ -2690,6 +2697,17 @@ async function tick() {
     if (elUptime) elUptime.textContent = upStr;
     const elNetUp = document.getElementById('netUptime');
     if (elNetUp) elNetUp.textContent = upStr;
+
+    // No data from the stove yet (not linked, or linked but nothing posted): the values on the page are the API
+    // defaults, not the stove's. Say so in the hero, and grey out the cards and the controls.
+    const noData = !s.version_ack || Object.keys(rawS).length === 0;
+    document.querySelector('main').classList.toggle('no-data', noData);
+    if (noData) {
+      document.getElementById('mainStateTitle').textContent = t.noDataTitle;
+      document.getElementById('subStateDesc').textContent = t.noDataDesc;
+      document.getElementById('stateIconBox').textContent = '⏳';
+      document.getElementById('stateIconBox').className = 'state-icon-box';
+    }
 
     // Table render if search empty
     const sInput = document.getElementById('sensorSearch');
