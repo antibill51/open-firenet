@@ -43,8 +43,9 @@ header {
 }
 .brand {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 6px 10px;
   font-weight: 700;
   font-size: 1.15rem;
 }
@@ -58,6 +59,8 @@ header {
   letter-spacing: 0.5px;
 }
 .badge-sub { background: #202738; color: var(--text-dim); }
+.badge-live.off { background: #202738; color: var(--text-dim); border-color: var(--border); }
+.badge-live.off .dot { background: var(--text-muted); box-shadow: none; animation: none; }
 .badge-live { background: rgba(16,185,129,0.15); color: var(--green); border: 1px solid rgba(16,185,129,0.3); display: flex; align-items: center; gap: 5px; }
 .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: pulse 2s infinite; }
 @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.85); } }
@@ -552,9 +555,8 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
 <header>
   <div class="brand">
     <svg viewBox="0 0 100 100" style="width:28px;height:28px;filter:drop-shadow(0 0 6px rgba(249,115,22,0.5));flex-shrink:0"><path d="M48 10A40 40 0 1 0 52 90M52 10A40 40 0 0 1 48 90" fill="none" stroke="var(--primary)" stroke-width="7" stroke-linecap="round"/><path d="M50 24L59 40L53 43L64 58C64 70 58 76 50 76C42 76 36 70 36 58L47 43L41 40Z" fill="var(--primary)"/><path d="M50 52C53 52 56 56 56 61C56 65 53 68 50 68C47 68 44 65 44 61C44 56 47 52 50 52Z" fill="var(--bg)"/></svg>
-    <span>Open-Firenet</span>
-    <span class="badge badge-sub" id="modelBadge">Poêle</span>
-    <span class="badge badge-live"><span class="dot"></span> <span id="connState">En ligne</span></span>
+    <span style="white-space:nowrap">Open-Firenet <small id="fwVersion" style="font-size:0.7rem;font-weight:500;color:var(--text-muted)"></small></span>
+    <span class="badge badge-live" id="connBadge" style="white-space:nowrap"><span class="dot"></span> <span id="connState">En ligne</span></span>
   </div>
   <div class="header-actions">
     <select class="lang-select" id="langSelect" onchange="onSelectLang(this.value)">
@@ -1058,6 +1060,7 @@ const I18N = {
     online: "En ligne",
     waiting: "Attente poêle",
     connected: "Poêle connecté",
+    connectedShort: "connecté",
     offline: "Hors ligne",
     commError: "Erreur de communication",
     powerOn: "Allumer",
@@ -1253,6 +1256,7 @@ const I18N = {
     online: "Online",
     waiting: "Waiting for stove",
     connected: "Stove connected",
+    connectedShort: "connected",
     offline: "Offline",
     commError: "Communication error",
     powerOn: "Turn On",
@@ -1448,6 +1452,7 @@ const I18N = {
     online: "Online",
     waiting: "Warte auf Ofen",
     connected: "Ofen verbunden",
+    connectedShort: "verbunden",
     offline: "Offline",
     commError: "Kommunikationsfehler",
     powerOn: "Einschalten",
@@ -2393,6 +2398,9 @@ async function tick() {
     }
 
     document.getElementById('connState').textContent = s.version_ack ? t.connected : t.waiting;
+    document.getElementById('connBadge').classList.toggle('off', !s.version_ack);
+    const fwVer = (s.device && s.device.version) || '';
+    document.getElementById('fwVersion').textContent = fwVer ? (/^v/i.test(fwVer) ? fwVer : 'v' + fwVer) : '';
 
     // Why there is no link yet: not seen by any USB host, or seen but the stove stays silent.
     const usb = s.usb || null;
@@ -2506,8 +2514,9 @@ async function tick() {
     const mId = stObj.model !== undefined ? stObj.model : (rawS.model !== undefined ? rawS.model : 13);
     const mFallback = (curLang === 'fr' ? 'Modèle ' : 'Model ') + mId;
     const mName = stObj.model_name || modelNames[mId] || mFallback;
-    const vStr = stObj.mainboard_version ? (' V' + stObj.mainboard_version) : '';
-    document.getElementById('modelBadge').textContent = mName + vStr;
+    const vStr = stObj.mainboard_version ? (' v' + stObj.mainboard_version) : '';
+    // One header badge: stove model and mainboard firmware once linked, e.g. "DOMO v2.29 connecté".
+    if (s.version_ack) document.getElementById('connState').textContent = mName + vStr + ' ' + t.connectedShort;
 
     // MultiAir (modèles RIKA équipés : 4=ROCO MA, 13=DOMO, 17=PARO, 23=DOMO BACK, 25=SUMO MA, 29=PRIMO MA)
     const deck = document.getElementById('multiairDeck');
@@ -2687,6 +2696,7 @@ async function tick() {
     if (sInput && !sInput.value) renderSensors(rawS, '');
   } catch(e) {
     document.getElementById('connState').textContent = t.offline;
+    document.getElementById('connBadge').classList.add('off');
   }
 }
 
