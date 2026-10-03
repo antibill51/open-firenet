@@ -140,6 +140,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: Release ${{ github.ref_name }}
+          # Created as a draft: the title and the notes are written by hand, then the release is published from
+          # the GitHub page. A draft is invisible to the installer and to the "latest release" API until then.
+          draft: true
           generate_release_notes: true
           fail_on_unmatched_files: false
           files: |
