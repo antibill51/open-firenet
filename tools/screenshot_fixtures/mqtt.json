@@ -1,0 +1,10 @@
+{
+ "enabled": true,
+ "host": "192.168.1.10",
+ "port": 1883,
+ "user": "openfirenet",
+ "password_set": true,
+ "base_topic": "openfirenet",
+ "connected": true,
+ "status": "connected"
+}
