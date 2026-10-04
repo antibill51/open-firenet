@@ -8,3 +8,4 @@ g++ -std=c++17 -Wall -I"$ROOT/open-firenet" -I"$ROOT" "$HERE/api_test.cpp"      
 g++ -std=c++17 -Wall -I"$ROOT/open-firenet" -I"$ROOT" "$HERE/mqtt_test.cpp"             -o /tmp/firenet_mqtt_test && /tmp/firenet_mqtt_test
 g++ -std=c++17 -Wall -I"$ROOT/open-firenet" -I"$ROOT" "$HERE/host_bridge.cpp"           -o /tmp/host_bridge
 python3 "$HERE/test_stove_sim.py"
+python3 "$HERE/openapi_test.py"

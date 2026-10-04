@@ -24,6 +24,7 @@ jobs:
 
       - name: Run unit test suite
         run: |
+          python3 -c "import yaml" 2>/dev/null || pip install --quiet pyyaml   # test/openapi_test.py
           chmod +x test/build_and_test.sh
           ./test/build_and_test.sh
 

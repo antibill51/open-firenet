@@ -283,6 +283,8 @@ MultiAir forced convection fans are automatically detected and displayed in the 
 
 ## REST API V2
 
+The API is described in [`openapi.yaml`](openapi.yaml) (OpenAPI 3.0): endpoints, fields, types, units and ranges. A test (`test/openapi_test.py`) keeps it in line with the firmware.
+
 Open Firenet V2 provides a clean, unified REST JSON API with natural units (temperatures in °C as floats, power as percentage integers, clean mode strings):
 
 | Endpoint | Method | Description |
