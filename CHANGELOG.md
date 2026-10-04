@@ -1,6 +1,6 @@
 # Changelog
 
-## Non publié
+## v3.3.1 (2026-10-05)
 
 ### Fixes
 - The name is written "Open Firenet" everywhere, as on the logo, without the hyphen: web page, documentation, and the name reported by `/api/state` and `/api/version`. The Wi-Fi network created for the first setup keeps its name, `Open-Firenet-Setup`.
