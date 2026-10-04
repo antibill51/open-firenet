@@ -1025,7 +1025,7 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
           <button type="button" class="btn-lock" id="btnForgetWifi" style="color:#ef4444;border-color:#ef4444" onclick="forgetWifi()">Oublier le WiFi</button>
           <button type="submit" class="power-btn" id="btnSaveWifi" style="padding:8px 16px;font-size:0.9rem">Enregistrer & Redémarrer</button>
         </div>
-        <p id="captiveHint" style="font-size:0.8rem;color:var(--text-dim);margin:2px 0 0 0;text-align:center">Si le bouton ne réagit pas, ouvrez http://192.168.4.1 dans Safari ou Chrome. · If the button does nothing, open http://192.168.4.1 in Safari or Chrome.</p>
+        <p id="captiveHint" style="font-size:0.8rem;color:var(--text-dim);margin:2px 0 0 0;text-align:center"></p>
       </form>
     </div>
     <div class="card" style="gap:12px;margin-top:16px" id="mqttCard">
@@ -1128,7 +1128,12 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
 let lastState = null;
 let userInteracting = false;
 let userInteractTimer = null;
-let curLang = localStorage.getItem('lang') || 'fr';
+// Language: the one chosen before, else the browser's (French, German, or English for any other).
+function browserLang() {
+  const l = (navigator.language || 'en').slice(0, 2).toLowerCase();
+  return (l === 'fr' || l === 'de') ? l : 'en';
+}
+let curLang = localStorage.getItem('lang') || browserLang();
 
 const I18N = {
   fr: {
@@ -1241,6 +1246,7 @@ const I18N = {
     thSensorId: "Identifiant",
     thSensorVal: "Valeur",
     netTitle: "Configuration Réseau",
+    captiveHint: "Si le bouton ne réagit pas, ouvrez http://192.168.4.1 dans Safari ou Chrome.",
     mqttDesc: "Publie l'état du poêle sur un broker MQTT et reçoit des commandes, pour Jeedom, openHAB, Node-RED, Domoticz… Facultatif.",
     mqttEnabled: "Activer MQTT",
     mqttHost: "Adresse du broker",
@@ -1455,6 +1461,7 @@ const I18N = {
     thSensorId: "Internal ID",
     thSensorVal: "Value",
     netTitle: "Network Configuration",
+    captiveHint: "If the button does nothing, open http://192.168.4.1 in Safari or Chrome.",
     mqttDesc: "Publishes the stove state to an MQTT broker and accepts commands, for Jeedom, openHAB, Node-RED, Domoticz… Optional.",
     mqttEnabled: "Enable MQTT",
     mqttHost: "Broker address",
@@ -1669,6 +1676,7 @@ const I18N = {
     thSensorId: "Kennung",
     thSensorVal: "Wert",
     netTitle: "Netzwerkkonfiguration",
+    captiveHint: "Wenn die Schaltfläche nicht reagiert, öffnen Sie http://192.168.4.1 in Safari oder Chrome.",
     mqttDesc: "Veröffentlicht den Ofenzustand an einen MQTT-Broker und nimmt Befehle entgegen, für Jeedom, openHAB, Node-RED, Domoticz… Optional.",
     mqttEnabled: "MQTT aktivieren",
     mqttHost: "Broker-Adresse",
@@ -1868,6 +1876,7 @@ function applyLang() {
   document.getElementById('thSensorId').textContent = t.thSensorId;
   document.getElementById('thSensorVal').textContent = t.thSensorVal;
   document.getElementById('lblNetTitle').textContent = t.netTitle;
+  document.getElementById('captiveHint').textContent = t.captiveHint;
   document.getElementById('lblMqttDesc').textContent = t.mqttDesc;
   document.getElementById('lblMqttEnabled').textContent = t.mqttEnabled;
   document.getElementById('lblMqttHost').textContent = t.mqttHost;
