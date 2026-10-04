@@ -1,0 +1,23 @@
+{
+ "ok": true,
+ "active": true,
+ "heatingTimesActive": 1,
+ "setback_temperature": 16.0,
+ "setBackTemp": 160,
+ "slots": {
+  "heatTimeMon1": 6000800,
+  "heatTimeMon2": 17002200,
+  "heatTimeTue1": 6000800,
+  "heatTimeTue2": 17002200,
+  "heatTimeWed1": 6000800,
+  "heatTimeWed2": 17002200,
+  "heatTimeThu1": 6000800,
+  "heatTimeThu2": 17002200,
+  "heatTimeFri1": 6000800,
+  "heatTimeFri2": 17002200,
+  "heatTimeSat1": 8002300,
+  "heatTimeSat2": 0,
+  "heatTimeSun1": 8002300,
+  "heatTimeSun2": 0
+ }
+}

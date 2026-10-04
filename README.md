@@ -222,10 +222,20 @@ Once connected, open **`http://open-firenet.local`** in any web browser (or use 
     - **Frost protection** on/off and target temperature (4 – 10 °C)
     - **Room sensor calibration** offset (-4.0 – +4.0 °C)
     - **Baking oven** target temperature (DOMO BACK only)
+
+<p align="center">
+  <img src="assets/ui-desktop-bridge.png" alt="Open Firenet Web UI - Bridge tab: Wi-Fi, MQTT, restart" width="760">
+</p>
+
 - **Bridge tab** (`/#bridge`):
   - **Network**: IP, signal strength, Wi-Fi scan, Wi-Fi reconfiguration & reset
   - **MQTT**: broker settings and connection status (see [MQTT](#mqtt))
   - **Restart** of the bridge
+
+<p align="center">
+  <img src="assets/ui-desktop-diagnostics.png" alt="Open Firenet Web UI - Diagnostics tab: link with the stove, exchange log, all values" width="760">
+</p>
+
 - **Diagnostics tab** (`/#diagnostics`):
   - **Link with the stove**: USB CDC state, packet counters, protocol revision
   - **Exchange log**: real-time console of the raw frames exchanged with the stove, with sanitized WiFi credentials (identical consecutive lines are merged), and its download button
@@ -235,7 +245,8 @@ Once connected, open **`http://open-firenet.local`** in any web browser (or use 
 ### Mobile Interface
 
 <p align="center">
-  <img src="assets/ui-mobile.png" alt="Open Firenet - Mobile Interface" width="360">
+  <img src="assets/ui-mobile.png" alt="Open Firenet - Mobile Interface, Stove tab" width="320">
+  <img src="assets/ui-mobile-bridge.png" alt="Open Firenet - Mobile Interface, Bridge tab" width="320">
 </p>
 
 ---
