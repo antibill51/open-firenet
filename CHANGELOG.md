@@ -1,6 +1,6 @@
 # Changelog
 
-## Non publié
+## v3.3.0 (2026-10-04)
 
 ### Features
 - Web page reorganised into three tabs at the top: **Stove** (the dashboard and controls, unchanged), **Bridge** (Wi-Fi, MQTT, restart) and **Diagnostics** (link with the stove, exchange log, all values, and the frame delay under "Advanced"). Each tab has its own address (`/#bridge`, `/#diagnostics`), the page opens on Bridge during the first Wi-Fi setup, and the "stove does not answer" banner links to Diagnostics. The stove model, its firmware version and the link state are now shown in the dashboard, and the Stove tab carries a green or grey dot. (#55)
