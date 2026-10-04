@@ -224,6 +224,13 @@ if ! grep -q "#define OPENFIRENET_VERSION \"$CLEAN_VER\"" open-firenet/open-fire
 fi
 ok "OPENFIRENET_VERSION synchronisé (${CLEAN_VER})."
 
+# 10a. The API description carries the same version (checked by test/openapi_test.py)
+if [ -f openapi.yaml ]; then
+  sed -i -E "0,/^  version: .*/s//  version: $CLEAN_VER/" openapi.yaml
+  grep -q "^  version: $CLEAN_VER\$" openapi.yaml || fatal "Échec de la mise à jour de la version dans openapi.yaml !"
+  ok "openapi.yaml synchronisé (${CLEAN_VER})."
+fi
+
 # 10b. Notes de version : la section "## Non publié" de CHANGELOG.md devient celle de la release.
 # La section suivante est recréée par le premier feat/fix qui y ajoute une entrée.
 if [ -f CHANGELOG.md ] && grep -q "^## Non publié$" CHANGELOG.md; then
@@ -236,6 +243,7 @@ fi
 # 11. Commit automatique de la version
 info "Commit automatique de la version ${NEW_TAG}..."
 git add open-firenet/open-firenet.ino
+[ -f openapi.yaml ] && git add openapi.yaml
 [ -f CHANGELOG.md ] && git add CHANGELOG.md
 if ! git diff --cached --quiet; then
   git commit -m "chore(release): bump firmware version to ${NEW_TAG}"
