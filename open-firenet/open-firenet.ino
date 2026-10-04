@@ -815,8 +815,11 @@ static void handleApiControls() {
 //   <base>/set/<name>          command: one value, e.g. <base>/set/target_temperature 21.5
 // The client is esp-mqtt. It runs in its own task (connection, reconnection every 10 s, keep-alive), so a broker
 // that is down or slow never holds the main loop, which also runs the stove link. The two sides meet in two places:
-// outgoing messages are queued (esp_mqtt_client_enqueue, sent by the client's task), and incoming commands are put
-// in g_mqttInbox by the client's task and applied by the main loop.
+// outgoing messages are put in g_mqttOutbox and sent by a small publisher task, and incoming commands are put in
+// g_mqttInbox by the client's task and applied by the main loop.
+// (esp_mqtt_client_enqueue() is not used: the client sends about one queued message per second and drops those
+// older than 30 s, which lost most of a full refresh on a real stove. esp_mqtt_client_publish() sends at once but
+// may wait on a stalled broker, hence the separate task.)
 static esp_mqtt_client_handle_t g_mqttClient = nullptr;
 static volatile bool g_mqttFresh = false;     // a session just opened: everything is published again
 static volatile int g_mqttError = 0;          // 0 none, -1 broker unreachable, -3 connection lost, > 0 refusal code
@@ -824,6 +827,10 @@ static bool g_mqttReload = false;             // settings changed: restart the c
 static std::string g_mqttBase;                // base topic of the running client
 static std::mutex g_mqttMx;
 static std::deque<MqttCommand> g_mqttInbox;
+static std::deque<std::pair<std::string, std::string>> g_mqttOutbox;   // topic, payload (all retained, QoS 0)
+static const size_t MQTT_OUTBOX_MAX = 96;
+static std::mutex g_mqttClientMx;             // held while publishing, and while the client is stopped and destroyed
+static TaskHandle_t g_mqttPublisher = nullptr;
 static std::map<std::string, std::string> g_mqttSent;   // last value published per topic
 static String g_mqttLastState;
 static uint32_t g_mqttLastStateMs = 0;
@@ -861,6 +868,31 @@ static void mqttEvent(void*, esp_event_base_t, int32_t id, void* data) {
       break;
     }
     default: break;
+  }
+}
+
+// Publisher task: sends what the main loop queued. A message that cannot be sent empties the queue and asks for a
+// full refresh, so the "last value published" table never claims something that did not go out.
+static void mqttPublisherTask(void*) {
+  for (;;) {
+    std::pair<std::string, std::string> msg;
+    bool have = false;
+    {
+      std::lock_guard<std::mutex> lk(g_mqttMx);
+      if (!g_mqttOutbox.empty()) { msg = std::move(g_mqttOutbox.front()); g_mqttOutbox.pop_front(); have = true; }
+    }
+    if (!have) { vTaskDelay(pdMS_TO_TICKS(20)); continue; }
+    bool sent = false;
+    {
+      std::lock_guard<std::mutex> lk(g_mqttClientMx);
+      if (g_mqttClient && g_mqttConnected)
+        sent = esp_mqtt_client_publish(g_mqttClient, msg.first.c_str(), msg.second.data(), (int)msg.second.size(), 0, 1) >= 0;
+    }
+    if (!sent) {
+      std::lock_guard<std::mutex> lk(g_mqttMx);
+      g_mqttOutbox.clear();
+      g_mqttFresh = true;
+    }
   }
 }
 
@@ -922,6 +954,7 @@ static void mqttStart() {
   if (!g_mqttClient) { DBG.println("[mqtt] client init failed"); return; }
   esp_mqtt_client_register_event(g_mqttClient, MQTT_EVENT_ANY, mqttEvent, nullptr);
   esp_mqtt_client_start(g_mqttClient);
+  if (!g_mqttPublisher) xTaskCreate(mqttPublisherTask, "mqtt-publish", 4096, nullptr, 1, &g_mqttPublisher);
   DBG.printf("[mqtt] client started, broker %s:%u\n", g_mqttCfg.host.c_str(), (unsigned)g_mqttCfg.port);
 }
 
@@ -929,12 +962,15 @@ static void mqttStart() {
 // timeout (3 s) if the task is in the middle of a connection attempt.
 static void mqttStop() {
   if (!g_mqttClient) return;
-  if (g_mqttConnected) esp_mqtt_client_publish(g_mqttClient, (g_mqttBase + "/availability").c_str(), "offline", 0, 1, 1);
-  esp_mqtt_client_stop(g_mqttClient);
-  esp_mqtt_client_destroy(g_mqttClient);
-  g_mqttClient = nullptr; g_mqttConnected = false;
+  {
+    std::lock_guard<std::mutex> lk(g_mqttClientMx);
+    if (g_mqttConnected) esp_mqtt_client_publish(g_mqttClient, (g_mqttBase + "/availability").c_str(), "offline", 0, 1, 1);
+    esp_mqtt_client_stop(g_mqttClient);
+    esp_mqtt_client_destroy(g_mqttClient);
+    g_mqttClient = nullptr; g_mqttConnected = false;
+  }
   std::lock_guard<std::mutex> lk(g_mqttMx);
-  g_mqttInbox.clear();
+  g_mqttInbox.clear(); g_mqttOutbox.clear();
 }
 
 static const char* mqttStatus() {
@@ -951,7 +987,10 @@ static const char* mqttStatus() {
 }
 
 static bool mqttQueue(const std::string& leaf, const char* data, size_t len) {
-  return esp_mqtt_client_enqueue(g_mqttClient, (g_mqttBase + "/" + leaf).c_str(), data, (int)len, 0, 1, true) >= 0;
+  std::lock_guard<std::mutex> lk(g_mqttMx);
+  if (g_mqttOutbox.size() >= MQTT_OUTBOX_MAX) return false;   // not marked as sent: tried again at the next pass
+  g_mqttOutbox.push_back({g_mqttBase + "/" + leaf, std::string(data, len)});
+  return true;
 }
 
 // Queues what changed: the JSON state at most every 5 s (and at least every 60 s), then up to 25 single values per
@@ -1002,7 +1041,7 @@ static void mqttLoop() {
     }
     mqttApply(c);
   }
-  if (g_mqttFresh) { g_mqttFresh = false; g_mqttSent.clear(); g_mqttLastState = ""; DBG.println("[mqtt] connected"); }
+  if (g_mqttFresh) { g_mqttFresh = false; g_mqttSent.clear(); g_mqttLastState = ""; DBG.println("[mqtt] full refresh"); }
   static uint32_t lastPublish = 0;
   if (g_mqttConnected && millis() - lastPublish >= 1000) { lastPublish = millis(); mqttPublish(); }
 }
