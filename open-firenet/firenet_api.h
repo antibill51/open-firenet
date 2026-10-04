@@ -6,6 +6,7 @@
 // the API has always accepted go through the same code.
 #pragma once
 #include "firenet_protocol.h"
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -17,7 +18,7 @@
 namespace firenet {
 
 enum class ParamKind {
-  Bool,       // true/false or a number (non-zero = on)
+  Bool,       // true/false, on/off (any case) or a number (non-zero = on)
   Int,        // integer as given
   Round,      // number rounded to an integer (bake temperature)
   Mode,       // "manual" / "auto" / "comfort" or 0 / 1 / 2
@@ -68,8 +69,10 @@ inline const ControlParam* findControlParam(const std::string& name) {
 // Converts a textual value to the stove unit of the parameter. Returns false for a value that cannot be read.
 inline bool convertParam(ParamKind kind, const std::string& text, long& out) {
   if (kind == ParamKind::Bool) {
-    if (text == "true") { out = 1; return true; }
-    if (text == "false") { out = 0; return true; }
+    std::string t = text;
+    for (char& c : t) c = (char)std::tolower((unsigned char)c);
+    if (t == "true" || t == "on") { out = 1; return true; }
+    if (t == "false" || t == "off") { out = 0; return true; }
   }
   if (kind == ParamKind::Mode) {
     if (text == "manual") { out = 0; return true; }

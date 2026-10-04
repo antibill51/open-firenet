@@ -26,6 +26,9 @@ int main() {
   CH("HA offset -0.5 -> -5, setback 16 -> 160, bake 200", a.at("roomTempOffset") == -5 && a.at("setBackTemp") == 160 && a.at("bakeTarget") == 200);
   a = fromJson("{\"convectionFan2Active\": true, \"convectionFan2Level\": 3, \"convectionFan2Area\": -10}");
   CH("HA MultiAir 2 on / level 3 / area -10", a.at("convectionFan2Active") == 1 && a.at("convectionFan2Level") == 3 && a.at("convectionFan2Area") == -10);
+  { std::vector<std::pair<std::string, std::string>> p = {{"on", "ON"}, {"eco_mode", "off"}, {"mode", "auto"}, {"target_temperature", "21.5"}};
+    auto m = parseControlCommands(p);   // MQTT single-value topics: the payload is the value as text
+    CH("MQTT values: ON, off, auto, 21.5", m.at("onOff") == 1 && m.at("ecoMode") == 0 && m.at("mode") == 1 && m.at("roomTarget") == 215); }
   a = fromJson("{\"ecoMode\": true}");
   CH("eco mode true", a.at("ecoMode") == 1);
 
