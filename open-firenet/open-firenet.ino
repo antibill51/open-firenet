@@ -581,10 +581,10 @@ static void handleSerialProvisioning() {
 static void startApMode() {
   g_isApMode = true;
   WiFi.mode(WIFI_AP);
-  WiFi.softAP("Open Firenet Setup");   // réseau ouvert (sans mot de passe)
+  WiFi.softAP("Open-Firenet-Setup");   // réseau ouvert (sans mot de passe)
   dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
   dnsServer.start(53, "*", WiFi.softAPIP());
-  DBG.printf("[wifi] AP Open Firenet Setup (DNS captif actif) IP: %s\n",
+  DBG.printf("[wifi] AP Open-Firenet-Setup (DNS captif actif) IP: %s\n",
              WiFi.softAPIP().toString().c_str());
 }
 

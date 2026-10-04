@@ -163,12 +163,12 @@ Then inside WSL:
 
 ## First boot — WiFi provisioning
 
-On first boot (or if credentials were reset), the bridge enters **provisioning mode** with its own Wi-Fi Access Point: **`Open Firenet Setup`** (open network, no password).
+On first boot (or if credentials were reset), the bridge enters **provisioning mode** with its own Wi-Fi Access Point: **`Open-Firenet-Setup`** (open network, no password).
 
 Two ways to provision:
 
 ### Option A — Captive Portal (smartphone or PC, recommended)
-1. Connect your phone or laptop to the Wi-Fi network **`Open Firenet Setup`**.
+1. Connect your phone or laptop to the Wi-Fi network **`Open-Firenet-Setup`**.
 2. The captive portal opens automatically (or browse to `http://open-firenet.local` or `http://192.168.4.1`).
 3. Select your 2.4 GHz home Wi-Fi from the scanned networks list, enter your Wi-Fi password, and click **Save / Connect**.
 4. The dongle reboots, connects to your LAN, and becomes available at **`http://open-firenet.local`**.

@@ -506,7 +506,7 @@ Key points:
 Two ways to give the dongle its own WiFi credentials:
 
 - **Captive portal** — on first boot (or after a reset) the dongle starts an open
-  access point `Open Firenet Setup`; the captive portal lets you pick your 2.4 GHz
+  access point `Open-Firenet-Setup`; the captive portal lets you pick your 2.4 GHz
   network and enter the password. Credentials are stored and the dongle reboots into
   station mode.
 - **Serial command** — send `SETWIFI:<ssid>:<password>` over the ESP32 serial port

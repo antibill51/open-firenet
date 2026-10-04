@@ -3,7 +3,7 @@
 ## Non publié
 
 ### Fixes
-- The name is written "Open Firenet" everywhere, as on the logo, without the hyphen: web page, documentation, and the name reported by `/api/state` and `/api/version`. The Wi-Fi network created for the first setup is now called `Open Firenet Setup`.
+- The name is written "Open Firenet" everywhere, as on the logo, without the hyphen: web page, documentation, and the name reported by `/api/state` and `/api/version`. The Wi-Fi network created for the first setup keeps its name, `Open-Firenet-Setup`.
 - Web page: the hint under the Wi-Fi form ("If the button does nothing, open http://192.168.4.1...") is now shown in the language of the page instead of in French and English at once.
 - Web page: on a first visit the page uses the language of your browser (French, German, or English for any other) instead of always starting in French.
 
