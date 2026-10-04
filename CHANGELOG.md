@@ -1,5 +1,10 @@
 # Changelog
 
+## Non publié
+
+### Fixes
+- `/api/state`: the stove model, its firmware version and build are `null` until the stove has sent them. They used to default to a DOMO on firmware 2.29, which looked like real data when the bridge was not linked to the stove at all.
+
 ## v3.2.0 (2026-10-03)
 
 ### Features

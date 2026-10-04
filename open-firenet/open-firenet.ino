@@ -150,7 +150,6 @@ static const char* getStoveModelName(long modelId) {
 static String jsonState() {
   const auto& m = g_link->model();
 
-  const bool v1 = (m.generation == 2);   // defaults below only matter before the first stove frame
   long rTemp    = sensorValue(m, "roomTemp", 0);
   long fTemp    = sensorValue(m, "flame", 0);
   long bTemp    = sensorValue(m, "boardSensor", 0);
@@ -163,9 +162,11 @@ static String jsonState() {
   long auger    = sensorValue(m, "augerSet", 0);
   long errMask  = sensorValue(m, "errMask32", 0);
   long errSub   = sensorValue(m, "errSub", 0);
-  long modelId  = sensorValue(m, "model", v1 ? 1 : 13);          // 1 = INDUO, 13 = DOMO
-  long appVer   = sensorValue(m, "appVerBoard", v1 ? 227 : 229);
-  long buildVer = sensorValue(m, "firmwareBuild", v1 ? 44501 : 58512);
+  // Stove identity: only what the stove itself reported. Before its first sensor post these are null (they used to
+  // default to a DOMO 2.29, which looked like real data on a stove that was not linked at all).
+  long modelId  = sensorValue(m, "model", -1);
+  long appVer   = sensorValue(m, "appVerBoard", -1);
+  long buildVer = sensorValue(m, "firmwareBuild", -1);
   long warnCode = sensorValue(m, "statusWarning", 0);
 
   // Air flap values are per mille: the stove screen labels them "Luftklappen [‰]" and shows the raw value (50 for
@@ -180,7 +181,13 @@ static String jsonState() {
   // disassembly: record 0 is set to 0x400 when no sensor is present); publish null instead of 102.4 °C.
   bool roomSensor = (rTemp != 1024);
 
-  const char* modelName = getStoveModelName(modelId);
+  char modelS[12] = "null", modelNameS[40] = "null", mbVerS[16] = "null", buildS[16] = "null";
+  if (modelId >= 0) {
+    snprintf(modelS, sizeof modelS, "%ld", modelId);
+    snprintf(modelNameS, sizeof modelNameS, "\"%s\"", getStoveModelName(modelId));
+  }
+  if (appVer >= 0) snprintf(mbVerS, sizeof mbVerS, "\"%ld.%02ld\"", appVer / 100, appVer % 100);
+  if (buildVer >= 0) snprintf(buildS, sizeof buildS, "\"%ld\"", buildVer);
 
   long curOn     = controlValue(m, "onOff", 0);
   long curMode   = controlValue(m, "mode", 2);
@@ -261,10 +268,10 @@ static String jsonState() {
       "\"error_code\":%ld,"
       "\"error_sub\":%ld,"
       "\"warning_code\":%ld,"
-      "\"model\":%ld,"
-      "\"model_name\":\"%s\","
-      "\"mainboard_version\":\"%ld.%02ld\","
-      "\"firmware_build\":\"%ld\""
+      "\"model\":%s,"
+      "\"model_name\":%s,"
+      "\"mainboard_version\":%s,"
+      "\"firmware_build\":%s"
     "},"
     "\"sensors\":{"
       "\"room_temperature\":%s,"
@@ -311,7 +318,7 @@ static String jsonState() {
     isBurning ? "true" : "false",
     errMask != 0 ? "true" : "false",
     errMask, errSub, warnCode,
-    modelId, modelName, appVer / 100, appVer % 100, buildVer,
+    modelS, modelNameS, mbVerS, buildS,
     roomTempS, roomSensor ? "true" : "false", fTempF, bTempF, pTotal, pHours, sCount, idFan, auger,
     airFlapsS, airFlapsTgtS,
     (curOn == 1) ? "true" : "false",

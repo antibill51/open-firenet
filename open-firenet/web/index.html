@@ -2518,9 +2518,10 @@ async function tick() {
       18: 'LIVO', 19: 'COMO II', 20: 'REVO II', 21: 'COSMO', 22: 'SONO',
       23: 'DOMO BACK', 24: 'PK E', 25: 'SUMO MULTIAIR', 26: 'CONNECT', 29: 'PRIMO MULTIAIR'
     };
-    const mId = stObj.model !== undefined ? stObj.model : (rawS.model !== undefined ? rawS.model : 13);
+    // model is null until the stove has posted it (no more DOMO default): show plain "RIKA" meanwhile.
+    const mId = stObj.model != null ? stObj.model : (rawS.model != null ? rawS.model : null);
     const mFallback = (curLang === 'fr' ? 'Modèle ' : 'Model ') + mId;
-    const mName = stObj.model_name || modelNames[mId] || mFallback;
+    const mName = stObj.model_name || modelNames[mId] || (mId != null ? mFallback : 'RIKA');
     const vStr = stObj.mainboard_version ? (' v' + stObj.mainboard_version) : '';
     // One header badge: stove model and mainboard firmware once linked, e.g. "DOMO v2.29 connecté".
     if (s.version_ack) document.getElementById('connState').textContent = mName + vStr + ' ' + t.connectedShort;
