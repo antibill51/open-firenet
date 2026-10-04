@@ -14,7 +14,9 @@ ASSETS = ROOT / "assets"
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 BG = (11, 18, 27)
-WHITE, ORANGE, GREY = (255, 255, 255), (249, 115, 22), (148, 163, 184)
+WHITE, GREY = (255, 255, 255), (148, 163, 184)
+# Gradient of the emblem, measured on the icon: from its bottom-left to its top-right.
+GRAD_FROM, GRAD_TO = (247, 168, 28), (249, 69, 29)
 W, H = 1024, 336                  # size of the @2x file
 SS = 4                            # drawn 4x larger, then reduced, for smooth edges
 PAD = 12                          # transparent margin around the frame
@@ -66,7 +68,14 @@ def main():
     block = (tb[3] - tb[1]) + line_gap + (gb[3] - gb[1])
     ty = (H * s - block) / 2 - tb[1]
     d.text((tx, ty), "Open ", font=title, fill=WHITE)
-    d.text((tx + w_open, ty), "Firenet", font=title, fill=ORANGE)
+    # "Firenet" carries the gradient of the emblem, in the same direction (bottom-left to top-right).
+    mask = Image.new("L", img.size, 0)
+    ImageDraw.Draw(mask).text((tx + w_open, ty), "Firenet", font=title, fill=255)
+    x0, y0, x1, y1 = mask.getbbox()
+    ys, xs = np.mgrid[0:img.size[1], 0:img.size[0]]
+    t = np.clip(((xs - x0) / (x1 - x0) + (y1 - ys) / (y1 - y0)) / 2, 0, 1)[..., None]
+    grad = (np.array(GRAD_FROM) * (1 - t) + np.array(GRAD_TO) * t).astype("uint8")
+    img.paste(Image.fromarray(grad).convert("RGBA"), (0, 0), mask)
     d.text((tx + 3 * s, ty + tb[3] + line_gap - gb[1]), "Local Smart Stove Bridge", font=tag, fill=GREY)
     big = img.resize((W, H), Image.LANCZOS)
     big.save(ASSETS / "brand-logo@2x.png", optimize=True)
