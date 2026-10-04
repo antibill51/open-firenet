@@ -995,6 +995,35 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
         <p id="captiveHint" style="font-size:0.8rem;color:var(--text-dim);margin:2px 0 0 0;text-align:center">Si le bouton ne réagit pas, ouvrez http://192.168.4.1 dans Safari ou Chrome. · If the button does nothing, open http://192.168.4.1 in Safari or Chrome.</p>
       </form>
     </div>
+    <div class="card" style="gap:12px;margin-top:16px" id="mqttCard">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <h3 id="lblMqttTitle">MQTT</h3>
+        <span class="badge badge-live off" id="mqttStatus">--</span>
+      </div>
+      <p id="lblMqttDesc" style="font-size:0.85rem;color:var(--text-dim);margin:0"></p>
+      <label style="display:flex;align-items:center;gap:8px;font-size:0.9rem">
+        <input type="checkbox" id="mqttEnabled"> <span id="lblMqttEnabled">Enable</span>
+      </label>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <label style="flex:3;min-width:150px;display:flex;flex-direction:column;gap:4px;font-size:0.8rem;color:var(--text-dim)"><span id="lblMqttHost"></span>
+          <input class="input-text" id="mqttHost" placeholder="192.168.1.10" autocomplete="off"></label>
+        <label style="flex:1;min-width:150px;display:flex;flex-direction:column;gap:4px;font-size:0.8rem;color:var(--text-dim)"><span id="lblMqttPort"></span>
+          <input class="input-text" id="mqttPort" type="number" min="1" max="65535" placeholder="1883"></label>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <label style="flex:1;min-width:150px;display:flex;flex-direction:column;gap:4px;font-size:0.8rem;color:var(--text-dim)"><span id="lblMqttUser"></span>
+          <input class="input-text" id="mqttUser" autocomplete="off"></label>
+        <label style="flex:1;min-width:150px;display:flex;flex-direction:column;gap:4px;font-size:0.8rem;color:var(--text-dim)"><span id="lblMqttPass"></span>
+          <input class="input-text" id="mqttPass" type="password" autocomplete="new-password"></label>
+      </div>
+      <div style="display:flex">
+        <label style="flex:1;min-width:150px;display:flex;flex-direction:column;gap:4px;font-size:0.8rem;color:var(--text-dim)"><span id="lblMqttBase"></span>
+          <input class="input-text" id="mqttBase" placeholder="openfirenet" autocomplete="off"></label>
+      </div>
+      <div style="display:flex;justify-content:flex-end">
+        <button type="button" class="power-btn" id="btnSaveMqtt" style="padding:8px 16px;font-size:0.9rem" onclick="saveMqtt()">Save</button>
+      </div>
+    </div>
   </div>
 
   <!-- Tab 3: CDC Link -->
@@ -1158,6 +1187,16 @@ const I18N = {
     thSensorId: "Identifiant",
     thSensorVal: "Valeur",
     netTitle: "Configuration Réseau",
+    mqttDesc: "Publie l'état du poêle sur un broker MQTT et reçoit des commandes, pour Jeedom, openHAB, Node-RED, Domoticz… Facultatif.",
+    mqttEnabled: "Activer MQTT",
+    mqttHost: "Adresse du broker",
+    mqttPort: "Port",
+    mqttUser: "Utilisateur (facultatif)",
+    mqttPass: "Mot de passe (facultatif)",
+    mqttPassKeep: "Inchangé",
+    mqttBase: "Sujet de base",
+    mqttSave: "Enregistrer",
+    mqttStatus: { "disabled": "Désactivé", "connected": "Connecté", "connecting": "Connexion…", "waiting for Wi-Fi": "En attente du Wi-Fi", "broker unreachable": "Broker injoignable", "refused: wrong user or password": "Refusé : utilisateur ou mot de passe incorrect", "refused by the broker": "Refusé par le broker", "no answer from the broker": "Le broker ne répond pas", "connection lost": "Connexion perdue" },
     netModePrefix: "Mode : ",
     netRssiPrefix: "Signal RSSI : ",
     joinWifi: "Rejoindre un réseau WiFi (2.4 GHz) :",
@@ -1356,6 +1395,16 @@ const I18N = {
     thSensorId: "Internal ID",
     thSensorVal: "Value",
     netTitle: "Network Configuration",
+    mqttDesc: "Publishes the stove state to an MQTT broker and accepts commands, for Jeedom, openHAB, Node-RED, Domoticz… Optional.",
+    mqttEnabled: "Enable MQTT",
+    mqttHost: "Broker address",
+    mqttPort: "Port",
+    mqttUser: "User (optional)",
+    mqttPass: "Password (optional)",
+    mqttPassKeep: "Unchanged",
+    mqttBase: "Base topic",
+    mqttSave: "Save",
+    mqttStatus: { "disabled": "Disabled", "connected": "Connected", "connecting": "Connecting…", "waiting for Wi-Fi": "Waiting for Wi-Fi", "broker unreachable": "Broker unreachable", "refused: wrong user or password": "Refused: wrong user or password", "refused by the broker": "Refused by the broker", "no answer from the broker": "No answer from the broker", "connection lost": "Connection lost" },
     netModePrefix: "Mode: ",
     netRssiPrefix: "RSSI Signal: ",
     joinWifi: "Join a WiFi network (2.4 GHz):",
@@ -1554,6 +1603,16 @@ const I18N = {
     thSensorId: "Kennung",
     thSensorVal: "Wert",
     netTitle: "Netzwerkkonfiguration",
+    mqttDesc: "Veröffentlicht den Ofenzustand an einen MQTT-Broker und nimmt Befehle entgegen, für Jeedom, openHAB, Node-RED, Domoticz… Optional.",
+    mqttEnabled: "MQTT aktivieren",
+    mqttHost: "Broker-Adresse",
+    mqttPort: "Port",
+    mqttUser: "Benutzer (optional)",
+    mqttPass: "Passwort (optional)",
+    mqttPassKeep: "Unverändert",
+    mqttBase: "Basis-Topic",
+    mqttSave: "Speichern",
+    mqttStatus: { "disabled": "Deaktiviert", "connected": "Verbunden", "connecting": "Verbinde…", "waiting for Wi-Fi": "Warte auf WLAN", "broker unreachable": "Broker nicht erreichbar", "refused: wrong user or password": "Abgelehnt: Benutzer oder Passwort falsch", "refused by the broker": "Vom Broker abgelehnt", "no answer from the broker": "Keine Antwort vom Broker", "connection lost": "Verbindung verloren" },
     netModePrefix: "Modus: ",
     netRssiPrefix: "RSSI Signal: ",
     joinWifi: "WLAN-Netzwerk beitreten (2,4 GHz):",
@@ -1737,6 +1796,15 @@ function applyLang() {
   document.getElementById('thSensorId').textContent = t.thSensorId;
   document.getElementById('thSensorVal').textContent = t.thSensorVal;
   document.getElementById('lblNetTitle').textContent = t.netTitle;
+  document.getElementById('lblMqttDesc').textContent = t.mqttDesc;
+  document.getElementById('lblMqttEnabled').textContent = t.mqttEnabled;
+  document.getElementById('lblMqttHost').textContent = t.mqttHost;
+  document.getElementById('lblMqttPort').textContent = t.mqttPort;
+  document.getElementById('lblMqttUser').textContent = t.mqttUser;
+  document.getElementById('lblMqttPass').textContent = t.mqttPass;
+  document.getElementById('lblMqttBase').textContent = t.mqttBase;
+  document.getElementById('btnSaveMqtt').textContent = t.mqttSave;
+  renderMqtt();
   document.getElementById('lblNetModePrefix').textContent = t.netModePrefix;
   document.getElementById('lblNetRssiPrefix').textContent = t.netRssiPrefix;
   document.getElementById('lblJoinWifi').textContent = t.joinWifi;
@@ -1852,6 +1920,50 @@ async function restartDongle() {
   try { await fetch('/api/restart', {method: 'POST'}); } catch (e) { /* la carte redémarre */ }
   toast(I18N[curLang].restartToast);
 }
+// MQTT settings (Network tab). The password is never sent back by the bridge: the field stays empty and is only
+// posted when something was typed in it.
+let _mqtt = null;
+function renderMqtt() {
+  if (!_mqtt) return;
+  const t = I18N[curLang] || I18N.en;
+  const b = document.getElementById('mqttStatus');
+  b.textContent = (t.mqttStatus && t.mqttStatus[_mqtt.status]) || _mqtt.status;
+  b.classList.toggle('off', !_mqtt.connected);
+  document.getElementById('mqttPass').placeholder = _mqtt.password_set ? t.mqttPassKeep : '';
+}
+async function loadMqtt(fill) {
+  try {
+    _mqtt = await (await fetch('/api/mqtt')).json();
+    if (fill) {
+      document.getElementById('mqttEnabled').checked = _mqtt.enabled;
+      document.getElementById('mqttHost').value = _mqtt.host;
+      document.getElementById('mqttPort').value = _mqtt.port;
+      document.getElementById('mqttUser').value = _mqtt.user;
+      document.getElementById('mqttBase').value = _mqtt.base_topic;
+      document.getElementById('mqttPass').value = '';
+    }
+    renderMqtt();
+  } catch (e) { /* older firmware or bridge unreachable: the card keeps its last state */ }
+}
+async function saveMqtt() {
+  const body = {
+    enabled: document.getElementById('mqttEnabled').checked,
+    host: document.getElementById('mqttHost').value.trim(),
+    port: Number(document.getElementById('mqttPort').value) || 1883,
+    user: document.getElementById('mqttUser').value.trim(),
+    base_topic: document.getElementById('mqttBase').value.trim()
+  };
+  const pass = document.getElementById('mqttPass').value;
+  if (pass !== '' || body.user === '') body.password = pass;   // no user: the stored password is cleared too
+  try {
+    _mqtt = await (await fetch('/api/mqtt', { method: 'POST', body: JSON.stringify(body) })).json();
+    document.getElementById('mqttPass').value = '';
+    renderMqtt();
+  } catch (e) { /* shown by the status badge at the next refresh */ }
+}
+loadMqtt(true);
+setInterval(() => { if (document.getElementById('tab-network').classList.contains('active')) loadMqtt(false); }, 3000);
+
 let _txGapTimer = null;
 async function setTxGap(ms) {
   document.getElementById('txGap').value = ms;

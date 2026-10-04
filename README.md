@@ -475,6 +475,34 @@ Supported fields:
 
 ---
 
+## MQTT
+
+Optional and off by default. The bridge can publish the stove state to an MQTT broker and accept commands from it, for home automation systems other than Home Assistant (Jeedom, openHAB, Node-RED, Domoticz...). Set it up in the **Network** tab of the web page (broker address, port, user, password, base topic), or with `POST /api/mqtt`.
+
+| Topic | Direction | Content |
+|---|---|---|
+| `openfirenet/availability` | bridge → broker | `online` / `offline` (retained; `offline` is the last will, sent by the broker when the bridge disappears) |
+| `openfirenet/state` | bridge → broker | JSON with the `device`, `stove`, `sensors` and `controls` objects, same names and units as `GET /api/state` (retained). Published when something changes, at most every 5 s and at least every 60 s |
+| `openfirenet/<section>/<name>` | bridge → broker | The same values, one per topic (retained), e.g. `openfirenet/sensors/room_temperature`, `openfirenet/stove/state`, `openfirenet/controls/on`. Published when the value changes |
+| `openfirenet/set` | broker → bridge | A command as JSON, same fields as `POST /api/controls`, e.g. `{"on": true, "target_temperature": 21.5}` |
+| `openfirenet/set/<name>` | broker → bridge | One value, e.g. `openfirenet/set/target_temperature` with payload `21.5`, `openfirenet/set/on` with `true` / `false` / `ON` / `OFF`, `openfirenet/set/mode` with `manual` / `auto` / `comfort`, `openfirenet/set/power_percent` with `70` |
+
+`openfirenet` is the default base topic; change it if you have several bridges. `openfirenet/device/connected` tells whether the bridge is linked to the stove; until it is, only the `device` values are published.
+
+Notes:
+- Commands must not be published with the retain flag: a retained command is ignored, as the broker would replay it at every reconnection.
+- Commands are ignored while the stove is not linked.
+- QoS 0, MQTT 3.1.1, no TLS: meant for a broker on your local network.
+- If the broker is unreachable the bridge retries on its own, after 10 s at first and then less and less often (up to every 5 minutes). The link with the stove is not affected.
+
+`GET /api/mqtt` returns the settings (never the password) and the connection status:
+
+```json
+{"enabled": true, "host": "192.168.1.10", "port": 1883, "user": "openfirenet", "password_set": true, "base_topic": "openfirenet", "connected": true, "status": "connected"}
+```
+
+`POST /api/mqtt` accepts `enabled`, `host`, `port`, `user`, `password` and `base_topic` (JSON or form); a field left out keeps its value.
+
 ## Home Assistant Integration
 
 For Home Assistant, use the official custom integration repository:  

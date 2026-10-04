@@ -2,6 +2,9 @@
 
 ## Non publié
 
+### Features
+- MQTT support, optional and off by default, for home automation systems other than Home Assistant (Jeedom, openHAB, Node-RED, Domoticz...). The bridge publishes the stove state to your broker (one JSON message, and one topic per value) with its availability, and accepts the same commands as the REST API (on/off, mode, power, target temperature, MultiAir, schedule...). Set it up in the Network tab of the web page; see the MQTT section of the README for the topics. (#52)
+
 ### Fixes
 - `/api/state`: the stove model, its firmware version and build are `null` until the stove has sent them. They used to default to a DOMO on firmware 2.29, which looked like real data when the bridge was not linked to the stove at all.
 

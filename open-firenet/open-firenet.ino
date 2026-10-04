@@ -25,7 +25,37 @@
 #include "esp_wifi.h"  // connexion STA robuste (méthode open-firenet, coexistence USB)
 #include "firenet_link.h"
 #include "firenet_api.h"
+#include "firenet_mqtt.h"
+#include <WiFiClient.h>
+#include <lwip/sockets.h>
 #include "web_ui.h"
+
+// Types used in function signatures are declared here, ahead of every function: the Arduino builder inserts its
+// generated prototypes before the first function of the sketch.
+// Base settings sent to the stove by applyControlPairs().
+struct AppliedControls { long on, mode, stage, room; };
+
+// MQTT settings, socket and client (the logic is further down, in the MQTT section).
+struct MqttSettings { bool enabled = false; String host; uint16_t port = 1883; String user, pass, base = "openfirenet"; };
+static MqttSettings g_mqttCfg;
+
+struct SocketTransport : firenet::MqttTransport {
+  WiFiClient client;
+  bool connected() override { return client.connected(); }
+  int read(uint8_t* buf, size_t n) override {
+    int a = client.available();
+    return a > 0 ? client.read(buf, min((size_t)a, n)) : 0;
+  }
+  size_t write(const uint8_t* buf, size_t n) override {
+    int fd = client.fd();
+    if (fd < 0) return 0;
+    int r = ::send(fd, buf, n, MSG_DONTWAIT);
+    return r < 0 ? 0 : (size_t)r;
+  }
+  void stop() override { client.stop(); }
+};
+static SocketTransport g_mqttSock;
+static firenet::MqttClient g_mqtt(g_mqttSock, [] { return (uint32_t)millis(); });
 
 // Avec CDCOnBoot=default (désactivé), le core ne démarre pas l'USB de lui-même :
 // on instancie le CDC et on fixe VID/PID AVANT USB.begin(). Serial = UART0 (debug).
@@ -147,7 +177,23 @@ static const char* getStoveModelName(long modelId) {
 }
 
 // ------------------------------------------------------------------- API web V2
-static String jsonState() {
+// Name, label and "is burning" of a main state code.
+static void mainStateNames(long mainSt, const char*& stName, const char*& stLabel, bool& isBurning) {
+  stName = "unknown"; stLabel = "Unknown"; isBurning = false;
+  switch (mainSt) {
+    case 0: stName = "off"; stLabel = "Off"; break;
+    case 1: stName = "standby"; stLabel = "Standby"; break;
+    case 2: stName = "ignition"; stLabel = "Ignition"; isBurning = true; break;
+    case 3: stName = "flame_start"; stLabel = "Flame Start"; isBurning = true; break;
+    case 4: stName = "heating"; stLabel = "Heating"; isBurning = true; break;
+    case 5: stName = "cleaning"; stLabel = "Grate Cleaning"; isBurning = true; break;
+    case 6: stName = "burn_off"; stLabel = "Burn Off"; isBurning = true; break;
+    case 7: stName = "splitlog"; stLabel = "Split Log"; isBurning = true; break;
+  }
+}
+
+// The "stove", "sensors" and "controls" objects, shared by /api/state and by MQTT (same names, same units).
+static String jsonStoveSections() {
   const auto& m = g_link->model();
 
   long rTemp    = sensorValue(m, "roomTemp", 0);
@@ -200,19 +246,8 @@ static String jsonState() {
   long fan2Level = controlValue(m, "convectionFan2Level", 0);
   long fan2Area  = controlValue(m, "convectionFan2Area", 0);
 
-  const char* stName = "unknown";
-  const char* stLabel = "Unknown";
-  bool isBurning = false;
-  switch (mainSt) {
-    case 0: stName = "off"; stLabel = "Off"; isBurning = false; break;
-    case 1: stName = "standby"; stLabel = "Standby"; isBurning = false; break;
-    case 2: stName = "ignition"; stLabel = "Ignition"; isBurning = true; break;
-    case 3: stName = "flame_start"; stLabel = "Flame Start"; isBurning = true; break;
-    case 4: stName = "heating"; stLabel = "Heating"; isBurning = true; break;
-    case 5: stName = "cleaning"; stLabel = "Grate Cleaning"; isBurning = true; break;
-    case 6: stName = "burn_off"; stLabel = "Burn Off"; isBurning = true; break;
-    case 7: stName = "splitlog"; stLabel = "Split Log"; isBurning = true; break;
-  }
+  const char* stName; const char* stLabel; bool isBurning;
+  mainStateNames(mainSt, stName, stLabel, isBurning);
 
   const char* modeName = "comfort";
   switch (curMode) {
@@ -242,22 +277,8 @@ static String jsonState() {
   char roomTempS[16] = "null";
   if (roomSensor) snprintf(roomTempS, sizeof roomTempS, "%.1f", rTempF);
 
-  char buf[2000];
+  char buf[1500];
   snprintf(buf, sizeof(buf),
-    "{"
-    "\"device\":{"
-      "\"name\":\"Open-Firenet\","
-      "\"version\":\"" OPENFIRENET_VERSION "\","
-      "\"app_version\":\"" OPENFIRENET_VERSION "\","
-      "\"firmware_version\":\"" OPENFIRENET_VERSION "\","
-      "\"ip\":\"%s\","
-      "\"mac\":\"%s\","
-      "\"wifi_ssid\":\"%s\","
-      "\"wifi_rssi\":%d,"
-      "\"uptime_seconds\":%lu,"
-      "\"free_heap\":%u,"
-      "\"connected\":%s"
-    "},"
     "\"stove\":{"
       "\"state\":\"%s\","
       "\"state_code\":%ld,"
@@ -306,14 +327,7 @@ static String jsonState() {
       "\"room_temperature_offset\":%.1f,"
       "\"eco_mode\":%s,"
       "\"eco_mode_possible\":%s"
-    "},",
-    (WiFi.getMode()==WIFI_AP?WiFi.softAPIP():WiFi.localIP()).toString().c_str(),
-    WiFi.macAddress().c_str(),
-    WiFi.SSID().c_str(),
-    WiFi.RSSI(),
-    millis() / 1000UL,
-    ESP.getFreeHeap(),
-    m.version_ack ? "true" : "false",
+    "}",
     stName, mainSt, stLabel, sState,
     isBurning ? "true" : "false",
     errMask != 0 ? "true" : "false",
@@ -332,7 +346,40 @@ static String jsonState() {
     ecoMode ? "true" : "false", ecoPossible ? "true" : "false"
   );
 
-  String j = String(buf);
+  return String(buf);
+}
+
+static String jsonState() {
+  const auto& m = g_link->model();
+  const char* stName; const char* stLabel; bool isBurning;
+  mainStateNames(sensorValue(m, "mainState", 1), stName, stLabel, isBurning);
+
+  char buf[600];
+  snprintf(buf, sizeof(buf),
+    "{"
+    "\"device\":{"
+      "\"name\":\"Open-Firenet\","
+      "\"version\":\"" OPENFIRENET_VERSION "\","
+      "\"app_version\":\"" OPENFIRENET_VERSION "\","
+      "\"firmware_version\":\"" OPENFIRENET_VERSION "\","
+      "\"ip\":\"%s\","
+      "\"mac\":\"%s\","
+      "\"wifi_ssid\":\"%s\","
+      "\"wifi_rssi\":%d,"
+      "\"uptime_seconds\":%lu,"
+      "\"free_heap\":%u,"
+      "\"connected\":%s"
+    "},",
+    (WiFi.getMode()==WIFI_AP?WiFi.softAPIP():WiFi.localIP()).toString().c_str(),
+    WiFi.macAddress().c_str(),
+    WiFi.SSID().c_str(),
+    WiFi.RSSI(),
+    millis() / 1000UL,
+    ESP.getFreeHeap(),
+    m.version_ack ? "true" : "false"
+  );
+
+  String j = String(buf) + jsonStoveSections() + ",";
   j += "\"wifi_mode\":\"" + String(WiFi.getMode()==WIFI_AP?"AP":"STA") + "\",";
   j += "\"ip\":\"" + (WiFi.getMode()==WIFI_AP?WiFi.softAPIP():WiFi.localIP()).toString() + "\",";
   j += "\"wifi_connected\":" + String(WiFi.status()==WL_CONNECTED?"true":"false") + ",";
@@ -348,6 +395,7 @@ static String jsonState() {
   // rx_bytes = bytes received from the stove since boot. Both stay false / 0 when the stove is plugged into the
   // board's UART/COM port, when the cable has no data wires, or when the stove is off.
   j += "\"usb\":{\"host_connected\":" + String((bool)USB ? "true" : "false") + ",\"rx_bytes\":" + String(m.rx_bytes) + "},";
+  j += "\"mqtt\":{\"enabled\":" + String(g_mqttCfg.enabled ? "true" : "false") + ",\"connected\":" + String(g_mqtt.connected() ? "true" : "false") + "},";
   j += "\"frames_in\":" + String(m.frames_in) + ",";
   j += "\"frames_out\":" + String(m.frames_out) + ",";
   j += "\"revision\":" + String((long)m.revision) + ",";
@@ -672,6 +720,49 @@ static void sendCors() {
   web.sendHeader("Access-Control-Allow-Headers", "*");
 }
 
+// Applies commanded name/value pairs (any name accepted by firenet_api.h) to the stove; shared by the REST API and
+// MQTT. The base settings it ends up sending are returned for the answer.
+static AppliedControls applyControlPairs(const std::vector<std::pair<std::string, std::string>>& pairs) {
+  const auto& m = g_link->model();
+  const auto cmd = firenet::parseControlCommands(pairs);
+  auto has = [&](const char* c) { return cmd.find(c) != cmd.end(); };
+  auto get = [&](const char* c, long def) { auto it = cmd.find(c); return it != cmd.end() ? it->second : controlValue(m, c, def); };
+
+  // Read-modify-write: the base settings and MultiAir are always sent, the others only when commanded.
+  long finalOn = get("onOff", 0), finalMode = get("mode", 2), finalStage = get("targetStage", 70), finalRoom = get("roomTarget", 200);
+  long fan1On = get("convectionFan1Active", 0), fan2On = get("convectionFan2Active", 0);
+  long fan1Level = get("convectionFan1Level", 0), fan2Level = get("convectionFan2Level", 0);
+  if (fan1Level < 0) fan1Level = controlValue(m, "convectionFan1Level", 0);
+  if (fan2Level < 0) fan2Level = controlValue(m, "convectionFan2Level", 0);
+  long fan1Area = get("convectionFan1Area", 0), fan2Area = get("convectionFan2Area", 0);
+  if (fan1Area < -30 || fan1Area > 30) fan1Area = controlValue(m, "convectionFan1Area", 0);
+  if (fan2Area < -30 || fan2Area > 30) fan2Area = controlValue(m, "convectionFan2Area", 0);
+
+  std::vector<std::pair<std::string, long>> full = {
+    {"revision", (long)m.revision}, {"onOff", finalOn}, {"mode", finalMode}, {"targetStage", finalStage}, {"roomTarget", finalRoom},
+    {"convectionFan1Active", fan1On}, {"convectionFan1Level", fan1Level}, {"convectionFan1Area", fan1Area},
+    {"convectionFan2Active", fan2On}, {"convectionFan2Level", fan2Level}, {"convectionFan2Area", fan2Area},
+  };
+  for (const char* c : {"heatingTimesActive", "setBackTemp", "frostProtectionActive", "frostProtectionTemp", "ecoMode"}) {
+    if (has(c) && cmd.at(c) >= 0) full.push_back({c, cmd.at(c)});
+  }
+  if (has("bakeTarget") && cmd.at("bakeTarget") >= 0) {
+    long b = cmd.at("bakeTarget"); full.push_back({"bakeTarget", b < 130 ? 130 : (b > 340 ? 340 : b)});
+  }
+  if (has("roomTempOffset")) {
+    long o = cmd.at("roomTempOffset"); full.push_back({"roomTempOffset", o < -40 ? -40 : (o > 40 ? 40 : o)});
+  }
+  for (int i = 7; i <= 20; i++) {
+    std::string k = firenet::ctrlName(i);
+    auto it = cmd.find(k);
+    if (it != cmd.end() && it->second >= 0) full.push_back({k, it->second});
+  }
+
+  g_link->applyControls(full);
+  lastPoll = millis();
+  return {finalOn, finalMode, finalStage, finalRoom};
+}
+
 // GET /api/controls & POST /api/controls (V2 JSON + legacy compat)
 static void handleApiControls() {
   sendCors();
@@ -720,42 +811,8 @@ static void handleApiControls() {
     pairs.push_back({n.c_str(), web.arg(i).c_str()});
   }
   if (web.hasArg("name") && web.hasArg("value")) pairs.push_back({web.arg("name").c_str(), web.arg("value").c_str()});
-  const auto cmd = firenet::parseControlCommands(pairs);
-  auto has = [&](const char* c) { return cmd.find(c) != cmd.end(); };
-  auto get = [&](const char* c, long def) { auto it = cmd.find(c); return it != cmd.end() ? it->second : controlValue(m, c, def); };
-
-  // Read-modify-write: the base settings and MultiAir are always sent, the others only when commanded.
-  long finalOn = get("onOff", 0), finalMode = get("mode", 2), finalStage = get("targetStage", 70), finalRoom = get("roomTarget", 200);
-  long fan1On = get("convectionFan1Active", 0), fan2On = get("convectionFan2Active", 0);
-  long fan1Level = get("convectionFan1Level", 0), fan2Level = get("convectionFan2Level", 0);
-  if (fan1Level < 0) fan1Level = controlValue(m, "convectionFan1Level", 0);
-  if (fan2Level < 0) fan2Level = controlValue(m, "convectionFan2Level", 0);
-  long fan1Area = get("convectionFan1Area", 0), fan2Area = get("convectionFan2Area", 0);
-  if (fan1Area < -30 || fan1Area > 30) fan1Area = controlValue(m, "convectionFan1Area", 0);
-  if (fan2Area < -30 || fan2Area > 30) fan2Area = controlValue(m, "convectionFan2Area", 0);
-
-  std::vector<std::pair<std::string, long>> full = {
-    {"revision", (long)m.revision}, {"onOff", finalOn}, {"mode", finalMode}, {"targetStage", finalStage}, {"roomTarget", finalRoom},
-    {"convectionFan1Active", fan1On}, {"convectionFan1Level", fan1Level}, {"convectionFan1Area", fan1Area},
-    {"convectionFan2Active", fan2On}, {"convectionFan2Level", fan2Level}, {"convectionFan2Area", fan2Area},
-  };
-  for (const char* c : {"heatingTimesActive", "setBackTemp", "frostProtectionActive", "frostProtectionTemp", "ecoMode"}) {
-    if (has(c) && cmd.at(c) >= 0) full.push_back({c, cmd.at(c)});
-  }
-  if (has("bakeTarget") && cmd.at("bakeTarget") >= 0) {
-    long b = cmd.at("bakeTarget"); full.push_back({"bakeTarget", b < 130 ? 130 : (b > 340 ? 340 : b)});
-  }
-  if (has("roomTempOffset")) {
-    long o = cmd.at("roomTempOffset"); full.push_back({"roomTempOffset", o < -40 ? -40 : (o > 40 ? 40 : o)});
-  }
-  for (int i = 7; i <= 20; i++) {
-    std::string k = firenet::ctrlName(i);
-    auto it = cmd.find(k);
-    if (it != cmd.end() && it->second >= 0) full.push_back({k, it->second});
-  }
-
-  g_link->applyControls(full);
-  lastPoll = millis();
+  const AppliedControls r = applyControlPairs(pairs);
+  long finalOn = r.on, finalMode = r.mode, finalStage = r.stage, finalRoom = r.room;
 
   const char* modeName = (finalMode == 0) ? "manual" : ((finalMode == 1) ? "auto" : "comfort");
   char resBuf[256];
@@ -763,6 +820,222 @@ static void handleApiControls() {
     "{\"ok\":true,\"on\":%s,\"mode\":\"%s\",\"mode_code\":%ld,\"target_temperature\":%.1f,\"power_percent\":%ld}",
     finalOn == 1 ? "true" : "false", modeName, finalMode, finalRoom / 10.0f, finalStage);
   web.send(200, "application/json", resBuf);
+}
+
+// ------------------------------------------------------------------------ MQTT
+// Optional, off by default (issue #52). Topics, under a configurable base ("openfirenet"):
+//   <base>/availability        online / offline (retained, last will)
+//   <base>/state               JSON: the "device", "stove", "sensors" and "controls" objects of /api/state (retained)
+//   <base>/<section>/<name>    the same values, one per topic (retained), e.g. <base>/sensors/room_temperature
+//   <base>/set                 command: JSON or "k=v;" text, as POST /api/controls
+//   <base>/set/<name>          command: one value, e.g. <base>/set/target_temperature 21.5
+// Nothing here may block the main loop, which also runs the stove link: the TCP connection (and the DNS lookup) is
+// made in a short-lived task, writes never wait (MSG_DONTWAIT) and a failed write drops the session.
+enum { MQTT_TCP_IDLE, MQTT_TCP_CONNECTING, MQTT_TCP_UP, MQTT_TCP_FAILED, MQTT_SESSION };
+static volatile int g_mqttPhase = MQTT_TCP_IDLE;
+static char g_mqttTaskHost[96];
+static uint16_t g_mqttTaskPort = 1883;
+static const uint32_t MQTT_RETRY_MIN_MS = 5000, MQTT_RETRY_MAX_MS = 300000;
+static uint32_t g_mqttRetryMs = MQTT_RETRY_MIN_MS, g_mqttLastTry = 0;
+static bool g_mqttTried = false, g_mqttTcpFailed = false, g_mqttReload = false;
+static std::map<std::string, std::string> g_mqttSent;   // last value published per topic
+static String g_mqttLastState;
+static uint32_t g_mqttLastStateMs = 0;
+
+static void mqttConnectTask(void*) {
+  bool up = g_mqttSock.client.connect(g_mqttTaskHost, g_mqttTaskPort, 3000);
+  g_mqttPhase = up ? MQTT_TCP_UP : MQTT_TCP_FAILED;
+  vTaskDelete(nullptr);
+}
+
+static std::string mqttTopic(const char* leaf) { return std::string(g_mqttCfg.base.c_str()) + "/" + leaf; }
+
+static void mqttOnMessage(const std::string& topic, const std::string& payload, bool retained) {
+  // A retained command would be replayed at every reconnection (e.g. switch the stove on again): ignored.
+  if (retained) { DBG.printf("[mqtt] retained command on %s ignored\n", topic.c_str()); return; }
+  const std::string set = mqttTopic("set");
+  std::vector<std::pair<std::string, std::string>> pairs;
+  if (topic == set) {
+    if (payload.find('{') != std::string::npos) firenet::jsonPairs(payload, pairs); else firenet::textPairs(payload, pairs);
+  } else if (topic.compare(0, set.size() + 1, set + "/") == 0) {
+    pairs.push_back({topic.substr(set.size() + 1), payload});
+  }
+  if (pairs.empty() || firenet::parseControlCommands(pairs).empty()) {
+    DBG.printf("[mqtt] nothing to apply in %s\n", topic.c_str());
+    return;
+  }
+  if (!g_link->model().version_ack || g_link->model().controls_pos.empty()) {
+    DBG.println("[mqtt] command ignored: the stove is not linked");   // its current settings are not known yet
+    return;
+  }
+  applyControlPairs(pairs);
+  DBG.printf("[mqtt] command applied from %s\n", topic.c_str());
+}
+
+static void mqttLoadSettings() {
+  prefs.begin("firenet", true);
+  g_mqttCfg.enabled = prefs.getBool("mq_on", false);
+  g_mqttCfg.host = prefs.getString("mq_host", "");
+  g_mqttCfg.port = prefs.getUShort("mq_port", 1883);
+  g_mqttCfg.user = prefs.getString("mq_user", "");
+  g_mqttCfg.pass = prefs.getString("mq_pass", "");
+  g_mqttCfg.base = prefs.getString("mq_base", "openfirenet");
+  prefs.end();
+  if (g_mqttCfg.base.isEmpty()) g_mqttCfg.base = "openfirenet";
+  uint8_t mac[6]; WiFi.macAddress(mac);
+  char id[32]; snprintf(id, sizeof id, "open-firenet-%02x%02x%02x", mac[3], mac[4], mac[5]);
+  g_mqtt.setClientId(id);
+  g_mqtt.setCredentials(g_mqttCfg.user.c_str(), g_mqttCfg.pass.c_str());
+  g_mqtt.setWill(mqttTopic("availability"), "offline", true);
+  g_mqtt.setKeepAlive(30);
+}
+
+static void mqttSetup() {
+  mqttLoadSettings();
+  g_mqtt.onMessage(mqttOnMessage);
+  g_mqtt.onConnect([] {
+    DBG.println("[mqtt] connected");
+    g_mqttRetryMs = MQTT_RETRY_MIN_MS;
+    g_mqttSent.clear(); g_mqttLastState = "";
+    g_mqtt.publish(mqttTopic("availability"), "online", true);
+    g_mqtt.subscribe(mqttTopic("set"));
+    g_mqtt.subscribe(mqttTopic("set/#"));
+  });
+}
+
+static const char* mqttStatus() {
+  if (!g_mqttCfg.enabled || g_mqttCfg.host.isEmpty()) return "disabled";
+  if (g_mqtt.connected()) return "connected";
+  if (WiFi.status() != WL_CONNECTED) return "waiting for Wi-Fi";
+  if (!g_mqttTried) return "connecting";
+  if (g_mqttTcpFailed) return "broker unreachable";
+  switch (g_mqtt.lastError()) {
+    case 4: case 5: return "refused: wrong user or password";
+    case 1: case 2: case 3: return "refused by the broker";
+    case -2: return "no answer from the broker";
+    case -3: return "connection lost";
+    default: return "connecting";
+  }
+}
+
+// Publishes what changed: the JSON state at most every 5 s (and at least every 60 s), then up to 25 single values per
+// call so a full refresh is spread over a few seconds instead of filling the socket at once.
+static void mqttPublish() {
+  const auto& m = g_link->model();
+  bool linked = m.version_ack && !m.sensors_pos.empty();
+  char dev[160];
+  snprintf(dev, sizeof dev, "{\"device\":{\"version\":\"" OPENFIRENET_VERSION "\",\"connected\":%s,\"ip\":\"%s\"}",
+           linked ? "true" : "false", WiFi.localIP().toString().c_str());
+  // Before the stove is linked its values are not known: only the "device" object is published.
+  String state = String(dev) + (linked ? "," + jsonStoveSections() : String()) + "}";
+  uint32_t now = millis();
+  bool changed = state != g_mqttLastState;
+  if ((changed && (g_mqttLastState.isEmpty() || now - g_mqttLastStateMs >= 5000)) || now - g_mqttLastStateMs >= 60000) {
+    if (!g_mqtt.publish(mqttTopic("state"), state.c_str(), true)) return;
+    g_mqttLastState = state; g_mqttLastStateMs = now;
+  }
+  std::vector<std::pair<std::string, std::string>> values;
+  firenet::mqtt::flattenSections(state.c_str(), values);
+  int budget = 25;
+  for (const auto& v : values) {
+    auto it = g_mqttSent.find(v.first);
+    if (it != g_mqttSent.end() && it->second == v.second) continue;
+    if (!g_mqtt.publish(mqttTopic(v.first.c_str()), v.second, true)) return;
+    g_mqttSent[v.first] = v.second;
+    if (--budget == 0) break;
+  }
+}
+
+static void mqttLoop() {
+  if (g_mqttPhase == MQTT_TCP_CONNECTING) return;            // the socket belongs to the connection task
+  if (g_mqttReload) {                                        // settings changed: start over with the new ones
+    g_mqttReload = false;
+    if (g_mqtt.connected()) g_mqtt.publish(mqttTopic("availability"), "offline", true);
+    g_mqtt.disconnect(); g_mqttSock.stop();
+    mqttLoadSettings();
+    g_mqttPhase = MQTT_TCP_IDLE; g_mqttTried = false; g_mqttRetryMs = MQTT_RETRY_MIN_MS; g_mqttLastTry = 0;
+  }
+  bool wanted = g_mqttCfg.enabled && !g_mqttCfg.host.isEmpty() && !g_isApMode && WiFi.status() == WL_CONNECTED;
+  switch (g_mqttPhase) {
+    case MQTT_TCP_IDLE:
+      if (!wanted || (g_mqttTried && millis() - g_mqttLastTry < g_mqttRetryMs)) return;
+      strlcpy(g_mqttTaskHost, g_mqttCfg.host.c_str(), sizeof g_mqttTaskHost);
+      g_mqttTaskPort = g_mqttCfg.port;
+      g_mqttPhase = MQTT_TCP_CONNECTING;
+      if (xTaskCreate(mqttConnectTask, "mqtt-connect", 4096, nullptr, 1, nullptr) != pdPASS) g_mqttPhase = MQTT_TCP_FAILED;
+      return;
+    case MQTT_TCP_FAILED:
+      g_mqttSock.stop(); g_mqttTcpFailed = true;
+      break;
+    case MQTT_TCP_UP:
+      g_mqttTcpFailed = false;
+      if (!wanted) { g_mqttSock.stop(); g_mqttPhase = MQTT_TCP_IDLE; return; }
+      if (g_mqtt.begin()) { g_mqttPhase = MQTT_SESSION; return; }
+      break;
+    case MQTT_SESSION: {
+      if (!wanted) { g_mqtt.disconnect(); g_mqttPhase = MQTT_TCP_IDLE; return; }
+      if (g_mqtt.loop()) {
+        static uint32_t lastPublish = 0;
+        if (g_mqtt.connected() && millis() - lastPublish >= 1000) { lastPublish = millis(); mqttPublish(); }
+        return;
+      }
+      DBG.printf("[mqtt] session ended (%d)\n", g_mqtt.lastError());
+      break;
+    }
+  }
+  // A failed attempt or a lost session: retry later, doubling the wait up to 5 minutes.
+  g_mqttPhase = MQTT_TCP_IDLE; g_mqttTried = true; g_mqttLastTry = millis();
+  g_mqttRetryMs = min(g_mqttRetryMs * 2, MQTT_RETRY_MAX_MS);
+}
+
+static String jsonEscape(const String& in) {
+  String out;
+  for (size_t i = 0; i < in.length(); i++) {
+    char c = in[i];
+    if (c == '"' || c == '\\') { out += '\\'; out += c; }
+    else if ((uint8_t)c >= 0x20) out += c;
+  }
+  return out;
+}
+
+// GET /api/mqtt: settings (the password is never returned) and connection status.
+// POST /api/mqtt: enabled, host, port, user, password, base_topic (JSON or form). A field left out keeps its value.
+static void handleMqtt() {
+  sendCors();
+  if (web.method() == HTTP_OPTIONS) { web.send(204); return; }
+  if (web.method() == HTTP_POST) {
+    std::vector<std::pair<std::string, std::string>> kv;
+    firenet::jsonPairs(web.hasArg("plain") ? web.arg("plain").c_str() : "", kv);
+    for (int i = 0; i < web.args(); i++) if (web.argName(i) != "plain") kv.push_back({web.argName(i).c_str(), web.arg(i).c_str()});
+    prefs.begin("firenet", false);
+    for (const auto& p : kv) {
+      String v = p.second.c_str(); v.trim();
+      if (p.first == "enabled") prefs.putBool("mq_on", v == "true" || v == "1" || v == "on");
+      else if (p.first == "host") prefs.putString("mq_host", v.substring(0, 95));
+      else if (p.first == "port") { long n = v.toInt(); prefs.putUShort("mq_port", (n > 0 && n < 65536) ? (uint16_t)n : 1883); }
+      else if (p.first == "user") prefs.putString("mq_user", v.substring(0, 64));
+      else if (p.first == "password") prefs.putString("mq_pass", String(p.second.c_str()).substring(0, 64));
+      else if (p.first == "base_topic") {
+        while (v.endsWith("/")) v.remove(v.length() - 1);
+        if (v.indexOf('#') < 0 && v.indexOf('+') < 0) prefs.putString("mq_base", v.isEmpty() ? String("openfirenet") : v.substring(0, 64));
+      }
+    }
+    prefs.end();
+    g_mqttReload = true;
+  }
+  // Right after a POST the answer shows the saved settings; the status follows at the next GET.
+  MqttSettings c = g_mqttCfg;
+  if (g_mqttReload) {
+    prefs.begin("firenet", true);
+    c.enabled = prefs.getBool("mq_on", false); c.host = prefs.getString("mq_host", ""); c.port = prefs.getUShort("mq_port", 1883);
+    c.user = prefs.getString("mq_user", ""); c.pass = prefs.getString("mq_pass", ""); c.base = prefs.getString("mq_base", "openfirenet");
+    prefs.end();
+  }
+  String j = "{\"enabled\":" + String(c.enabled ? "true" : "false") + ",\"host\":\"" + jsonEscape(c.host) + "\",\"port\":" + String(c.port)
+    + ",\"user\":\"" + jsonEscape(c.user) + "\",\"password_set\":" + String(c.pass.isEmpty() ? "false" : "true")
+    + ",\"base_topic\":\"" + jsonEscape(c.base) + "\",\"connected\":" + String(!g_mqttReload && g_mqtt.connected() ? "true" : "false")
+    + ",\"status\":\"" + String(g_mqttReload ? (c.enabled && !c.host.isEmpty() ? "connecting" : "disabled") : mqttStatus()) + "\"}";
+  web.send(200, "application/json", j);
 }
 
 // GET & POST /api/schedule
@@ -944,6 +1217,7 @@ void setup() {
   web.on("/api/schedule", handleApiSchedule);
   web.on("/api/restart", handleRestart);
   web.on("/api/txgap", handleTxGap);
+  web.on("/api/mqtt", handleMqtt);
   web.on("/api/wifi", HTTP_POST, handleWifi);
   web.on("/api/forget", HTTP_POST, handleForget);
   web.on("/api/scan", handleScan);
@@ -967,6 +1241,7 @@ void setup() {
   // Routes compatibilité open-firenet & Home Assistant
   web.on("/log", handleLog);
 
+  mqttSetup();
   web.begin();
   DBG.println("[web] démarré (avec portail captif + compatibilité open-firenet)");
 }
@@ -1079,4 +1354,5 @@ void loop() {
 
   ArduinoOTA.handle();
   web.handleClient();
+  mqttLoop();
 }
