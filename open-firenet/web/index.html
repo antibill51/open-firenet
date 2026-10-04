@@ -441,8 +441,16 @@ input[type=range]::-webkit-slider-thumb {
 .page { display: none; flex-direction: column; gap: inherit; }
 .page.active { display: flex; }
 .page > .card + .card, .page > .card + details.card { margin-top: 0 !important; }
-.page-tabs { display: flex; gap: 8px; padding: 8px 20px; border-bottom: 1px solid var(--border); background: rgba(22, 27, 38, 0.6); overflow-x: auto; }
-.page-tabs .tab-btn { text-decoration: none; white-space: nowrap; }
+/* Page tabs, inside the header: they take the room between the brand and the language menu; on a narrow screen
+   they move to a second row and share its width. */
+.page-tabs { display: flex; gap: 6px; flex: 1; justify-content: center; margin: 0 16px; min-width: 0; }
+.page-tabs .tab-btn { flex: 1; max-width: 200px; text-align: center; text-decoration: none; white-space: nowrap; padding: 8px 12px; }
+@media (max-width: 760px) {
+  header { flex-wrap: wrap; row-gap: 10px; }
+  header .brand { flex: 1 1 0; min-width: 0; }
+  .page-tabs { order: 3; flex-basis: 100%; margin: 0; }
+  .page-tabs .tab-btn { max-width: none; padding: 8px 6px; }
+}
 details.advanced > summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; color: var(--text-dim); }
 details.advanced[open] > summary { color: var(--text); }
 .log-console {
@@ -564,6 +572,11 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
     <span style="white-space:nowrap">Open-Firenet <small id="fwVersion" style="font-size:0.7rem;font-weight:500;color:var(--text-muted)"></small></span>
     <span class="badge badge-live" id="connBadge" style="white-space:nowrap"><span class="dot"></span> <span id="connState">En ligne</span></span>
   </div>
+  <nav class="page-tabs" aria-label="Pages">
+    <a class="tab-btn active" id="pageBtnStove" href="#stove">Stove</a>
+    <a class="tab-btn" id="pageBtnBridge" href="#bridge">Bridge</a>
+    <a class="tab-btn" id="pageBtnDiag" href="#diagnostics">Diagnostics</a>
+  </nav>
   <div class="header-actions">
     <select class="lang-select" id="langSelect" onchange="onSelectLang(this.value)">
       <option value="de">🇩🇪 Deutsch</option>
@@ -572,11 +585,6 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
     </select>
   </div>
 </header>
-<nav class="page-tabs" aria-label="Pages">
-  <a class="tab-btn active" id="pageBtnStove" href="#stove">Stove</a>
-  <a class="tab-btn" id="pageBtnBridge" href="#bridge">Bridge</a>
-  <a class="tab-btn" id="pageBtnDiag" href="#diagnostics">Diagnostics</a>
-</nav>
 <main>
   <div id="apBanner" style="display:none;background:rgba(56,189,248,0.15);border:1px solid var(--blue);border-radius:10px;padding:12px 16px;font-size:0.9rem;align-items:center;gap:12px">
     <span style="font-size:1.5rem">📶</span>
