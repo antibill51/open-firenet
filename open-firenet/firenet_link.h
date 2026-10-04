@@ -1,4 +1,4 @@
-// firenet_link.h — couche liaison CDC côté dongle Open-Firenet, au-dessus de firenet_protocol.h.
+// firenet_link.h — couche liaison CDC côté dongle Open Firenet, au-dessus de firenet_protocol.h.
 // Sans dépendance Arduino : testable en g++. Le firmware fournit deux callbacks
 // (émettre des octets, temps en ms) ; toute la logique protocole est ici.
 #pragma once

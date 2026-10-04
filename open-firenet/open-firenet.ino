@@ -1,7 +1,7 @@
-// open-firenet.ino — Open-Firenet pour ESP32-S3 (reverse-engineering).
+// open-firenet.ino — Open Firenet pour ESP32-S3 (reverse-engineering).
 //
 // Rôle : se substituer au dongle officiel. L'ESP32 est DEVICE USB CDC branché sur
-// le poêle (hôte USB) et joue à la fois le dongle ET le serveur local Open-Firenet :
+// le poêle (hôte USB) et joue à la fois le dongle ET le serveur local Open Firenet :
 // il interroge le poêle en CDC, expose l'état par une interface web + API REST,
 // et applique les consignes reçues. Toute la logique protocole prouvée est dans
 // firenet_protocol.h / firenet_link.h (testés en g++).
@@ -50,7 +50,7 @@ USBCDC USBSerial;
 #define OPENFIRENET_VERSION "3.3.0"
 #endif
 
-// Identifiants USB Open-Firenet
+// Identifiants USB Open Firenet
 #define OPENFIRENET_USB_VID 0x303A
 #define OPENFIRENET_USB_PID 0x819A
 
@@ -67,7 +67,7 @@ static uint32_t g_wifiConnectAt = 0;   // connect STA différé (méthode open-f
 static bool     g_isApMode = false;
 static bool     g_staConnected = false;
 static uint32_t g_staStart = 0;
-bool        writeEnabled = true;    // Open-Firenet : consignes actives directement
+bool        writeEnabled = true;    // Open Firenet : consignes actives directement
 
 // Lectures positionnelles. MÉCANISME PROUVÉ :
 // le poêle émet UNE position par NOM enregistré dans GET_SENSORS.
@@ -342,7 +342,7 @@ static String jsonState() {
   snprintf(buf, sizeof(buf),
     "{"
     "\"device\":{"
-      "\"name\":\"Open-Firenet\","
+      "\"name\":\"Open Firenet\","
       "\"version\":\"" OPENFIRENET_VERSION "\","
       "\"app_version\":\"" OPENFIRENET_VERSION "\","
       "\"firmware_version\":\"" OPENFIRENET_VERSION "\","
@@ -421,7 +421,7 @@ static void handleVersion() {
   sendCors();
   char buf[220];
   snprintf(buf, sizeof(buf),
-    "{\"app\":\"Open-Firenet\",\"version\":\"" OPENFIRENET_VERSION "\",\"build_date\":\"%s\",\"build_time\":\"%s\",\"target\":\"ESP32-S3\"}",
+    "{\"app\":\"Open Firenet\",\"version\":\"" OPENFIRENET_VERSION "\",\"build_date\":\"%s\",\"build_time\":\"%s\",\"target\":\"ESP32-S3\"}",
     __DATE__, __TIME__
   );
   web.send(200, "application/json", buf);
@@ -484,7 +484,7 @@ static void handleWifi() {
   web.send(200, "text/html; charset=utf-8",
     "<!doctype html><html><head><meta charset=\"utf-8\">"
     "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-    "<title>Open-Firenet</title></head>"
+    "<title>Open Firenet</title></head>"
     "<body style=\"margin:0;background:#0c0f17;color:#f1f5f9;font-family:sans-serif;"
     "display:flex;align-items:center;justify-content:center;min-height:100vh;"
     "padding:24px;box-sizing:border-box\">"
@@ -1175,7 +1175,7 @@ static void handleLog() {
 // --------------------------------------------------------------------- setup
 void setup() {
   DBG.begin(115200);
-  DBG.println("\n[Open-Firenet] boot");
+  DBG.println("\n[Open Firenet] boot");
   buildNames();
 
   // USB CDC avec les identifiants fixés AVANT begin

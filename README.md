@@ -52,11 +52,11 @@ The stove acts as USB host; the ESP32-S3 acts as USB device (CDC class, VID `0x3
 
 ## Flashing & Installation
 
-### Option 1 — Open-Firenet Installer (GUI & CLI — Recommended)
+### Option 1 — Open Firenet Installer (GUI & CLI — Recommended)
 
-The easiest and recommended way to install, flash, configure, and wirelessly update your Open-Firenet dongle on **Windows**, **macOS**, and **Linux** without needing Python, `arduino-cli`, or `esptool`.
+The easiest and recommended way to install, flash, configure, and wirelessly update your Open Firenet dongle on **Windows**, **macOS**, and **Linux** without needing Python, `arduino-cli`, or `esptool`.
 
-Download the standalone executable for your operating system from [**Open-Firenet Installer Releases**](https://github.com/openfirenet/open-firenet-installer/releases):
+Download the standalone executable for your operating system from [**Open Firenet Installer Releases**](https://github.com/openfirenet/open-firenet-installer/releases):
 
 | Operating System | Pre-compiled Standalone Binary |
 |---|---|
@@ -283,7 +283,7 @@ MultiAir forced convection fans are automatically detected and displayed in the 
 
 ## REST API V2
 
-Open-Firenet V2 provides a clean, unified REST JSON API with natural units (temperatures in °C as floats, power as percentage integers, clean mode strings):
+Open Firenet V2 provides a clean, unified REST JSON API with natural units (temperatures in °C as floats, power as percentage integers, clean mode strings):
 
 | Endpoint | Method | Description |
 |---|---|---|
@@ -303,7 +303,7 @@ Open-Firenet V2 provides a clean, unified REST JSON API with natural units (temp
 ```json
 {
   "device": {
-    "name": "Open-Firenet",
+    "name": "Open Firenet",
     "version": "x.y.z",
     "ip": "192.168.1.93",
     "mac": "34:85:18:XX:XX:XX",

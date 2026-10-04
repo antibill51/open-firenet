@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Open-Firenet Release Script
+# Open Firenet Release Script
 #
 # Automatise le processus de release avec garde-fous stricts :
 # 1. Vérification de la propreté du git tree
@@ -36,7 +36,7 @@ if [[ -z "$REPO_ROOT" ]]; then
 fi
 cd "$REPO_ROOT"
 
-echo -e "\n${BOLD}${CYAN}=== Open-Firenet Release Assistant ===${NC}\n"
+echo -e "\n${BOLD}${CYAN}=== Open Firenet Release Assistant ===${NC}\n"
 
 # 1. Vérification de la propreté de l'arbre de travail
 info "Vérification de l'état de l'arbre de travail Git..."

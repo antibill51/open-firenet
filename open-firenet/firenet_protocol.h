@@ -1,4 +1,4 @@
-// firenet_protocol.h — cœur du protocole CDC Open-Firenet, sans dépendance Arduino.
+// firenet_protocol.h — cœur du protocole CDC Open Firenet, sans dépendance Arduino.
 // Chaque constante/fonction cite la section de PROTOCOL.md qui la démontre.
 // Compilable et testable en g++ puis inclus tel quel par le firmware ESP32.
 #pragma once

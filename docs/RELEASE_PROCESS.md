@@ -1,6 +1,6 @@
 # Processus d'Intégration Continue (CI) et de Release
 
-Ce document décrit le pipeline d'intégration continue, le mécanisme de signature cryptographique Minisign, et la procédure de release automatisée d'**Open-Firenet**.
+Ce document décrit le pipeline d'intégration continue, le mécanisme de signature cryptographique Minisign, et la procédure de release automatisée d'**Open Firenet**.
 
 ---
 

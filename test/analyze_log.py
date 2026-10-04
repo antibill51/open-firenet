@@ -19,7 +19,7 @@ with open(log_path, 'r', errors='ignore') as f:
     for line_num, line in enumerate(f):
         if '[wd]' in line:
             wd_events.append((line_num, line.strip()))
-        if '=== Open-Firenet' in line or 'rst:0x' in line:
+        if '=== Open-Firenet' in line or '=== Open Firenet' in line or 'rst:0x' in line:
             restarts.append((line_num, line.strip()))
         
         m_sys = re.search(r'\[sys\] uptime=(\d+)s heap=(\d+) maxblock=(\d+) rxAge=(\d+)ms', line)
@@ -42,7 +42,7 @@ with open(log_path, 'r', errors='ignore') as f:
             })
 
 file_size_mb = os.path.getsize(log_path) / (1024 * 1024)
-print(f"=== Open-Firenet Log Analysis: {log_path} ({file_size_mb:.2f} MB) ===")
+print(f"=== Open Firenet Log Analysis: {log_path} ({file_size_mb:.2f} MB) ===")
 
 if not sys_records:
     print("No [sys] records found in log yet.")
