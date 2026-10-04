@@ -447,8 +447,12 @@ input[type=range]::-webkit-slider-thumb {
 header { display: grid; grid-template-columns: 1fr auto 1fr; column-gap: 16px; }
 header .header-actions { justify-self: end; }
 .page-tabs { display: flex; gap: 6px; justify-content: center; min-width: 0; }
+/* The stove status badge lives in the Stove tab. */
+.page-tabs .tab-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.page-tabs #connBadge { white-space: nowrap; font-size: 0.68rem; }
+@media (max-width: 640px) { .page-tabs #connState { display: none; } .page-tabs #connBadge { padding: 4px; } }
 .page-tabs .tab-btn { min-width: 110px; text-align: center; text-decoration: none; white-space: nowrap; padding: 8px 12px; }
-@media (max-width: 1260px) {
+@media (max-width: 1100px) {
   header { display: flex; flex-wrap: wrap; row-gap: 10px; }
   header .brand { flex: 1 1 0; min-width: 0; }
   .page-tabs { order: 3; flex-basis: 100%; }
@@ -573,11 +577,10 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
   <div class="brand">
     <svg viewBox="0 0 100 100" style="width:28px;height:28px;filter:drop-shadow(0 0 6px rgba(249,115,22,0.5));flex-shrink:0"><path d="M48 10A40 40 0 1 0 52 90M52 10A40 40 0 0 1 48 90" fill="none" stroke="var(--primary)" stroke-width="7" stroke-linecap="round"/><path d="M50 24L59 40L53 43L64 58C64 70 58 76 50 76C42 76 36 70 36 58L47 43L41 40Z" fill="var(--primary)"/><path d="M50 52C53 52 56 56 56 61C56 65 53 68 50 68C47 68 44 65 44 61C44 56 47 52 50 52Z" fill="var(--bg)"/></svg>
     <span style="white-space:nowrap">Open-Firenet <small id="fwVersion" style="font-size:0.7rem;font-weight:500;color:var(--text-muted)"></small></span>
-    <span class="badge badge-live" id="connBadge" style="white-space:nowrap"><span class="dot"></span> <span id="connState">En ligne</span></span>
   </div>
   <nav class="page-tabs" aria-label="Pages">
-    <a class="tab-btn active" id="pageBtnStove" href="#stove">Stove</a>
-    <a class="tab-btn" id="pageBtnBridge" href="#bridge"><svg viewBox="1 5 22 14" aria-hidden="true" style="width:1.7em;height:1.08em;vertical-align:-0.18em;margin-right:5px"><rect x="2" y="8.5" width="6" height="7" rx="0.8" fill="#aab4c8"/><rect x="3.6" y="10.2" width="1.6" height="1.4" fill="#3a4358"/><rect x="3.6" y="12.6" width="1.6" height="1.4" fill="#3a4358"/><rect x="8" y="6" width="14" height="12" rx="2.5" fill="var(--primary)"/><circle cx="18" cy="12" r="1.4" fill="#fff" opacity="0.85"/></svg><span id="pageBtnBridgeLbl">Bridge</span></a>
+    <a class="tab-btn active" id="pageBtnStove" href="#stove"><span id="pageBtnStoveLbl">Stove</span> <span class="badge badge-live" id="connBadge"><span class="dot"></span> <span id="connState"></span></span></a>
+    <a class="tab-btn" id="pageBtnBridge" href="#bridge"><svg viewBox="1 5 22 14" aria-hidden="true" style="width:1.7em;height:1.08em;vertical-align:-0.18em"><rect x="2" y="8.5" width="6" height="7" rx="0.8" fill="#aab4c8"/><rect x="3.6" y="10.2" width="1.6" height="1.4" fill="#3a4358"/><rect x="3.6" y="12.6" width="1.6" height="1.4" fill="#3a4358"/><rect x="8" y="6" width="14" height="12" rx="2.5" fill="var(--primary)"/><circle cx="18" cy="12" r="1.4" fill="#fff" opacity="0.85"/></svg><span id="pageBtnBridgeLbl">Bridge</span></a>
     <a class="tab-btn" id="pageBtnDiag" href="#diagnostics">Diagnostics</a>
   </nav>
   <div class="header-actions">
@@ -1802,7 +1805,7 @@ function applyLang() {
   if (document.getElementById('lblOffsetSubTitle')) document.getElementById('lblOffsetSubTitle').textContent = t.offsetSubTitle;
   if (document.getElementById('lblOffsetDesc')) document.getElementById('lblOffsetDesc').textContent = t.offsetDesc;
   if (document.getElementById('btnApplyRoomOffset')) document.getElementById('btnApplyRoomOffset').textContent = t.btnApplyRoomOffset;
-  document.getElementById('pageBtnStove').textContent = t.pageStove;
+  document.getElementById('pageBtnStoveLbl').textContent = t.pageStove;
   document.getElementById('pageBtnBridgeLbl').textContent = t.pageBridge;
   document.getElementById('pageBtnDiag').textContent = t.pageDiag;
   document.getElementById('lblDiagLink').textContent = t.diagLink;
