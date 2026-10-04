@@ -1,0 +1,21 @@
+name: Idea or feature request
+description: Suggest an improvement to the firmware, its web page or its API.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What would you like to do
+      description: Describe the need rather than the solution; say what you cannot do today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: How you imagine it, if you have something in mind.
+  - type: input
+    id: stove
+    attributes:
+      label: Stove model and firmware version
+      placeholder: e.g. DOMO 2.29

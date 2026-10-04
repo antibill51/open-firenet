@@ -1,0 +1,50 @@
+name: It works on my stove
+description: Tell us about a stove model or firmware version that works, so the compatibility list can be updated.
+labels: ["compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: Reports of working stoves are as useful as bug reports, especially for models and firmware versions not listed on the [compatibility page](https://openfirenet.github.io/compatibility.html).
+  - type: input
+    id: stove_model
+    attributes:
+      label: Stove model
+      placeholder: e.g. FILO, KAPO, REVO II
+    validations:
+      required: true
+  - type: input
+    id: stove_firmware
+    attributes:
+      label: Stove firmware version
+      description: Info menu on the stove screen (mainboard software).
+      placeholder: e.g. 2.26, 2.28
+    validations:
+      required: true
+  - type: input
+    id: bridge_version
+    attributes:
+      label: Open-Firenet firmware version
+      placeholder: e.g. 3.2.0
+    validations:
+      required: true
+  - type: checkboxes
+    id: works
+    attributes:
+      label: What works
+      options:
+        - label: Values are shown (temperatures, state, counters)
+        - label: On/off, mode, power and target temperature
+        - label: Weekly schedule, frost protection, room sensor calibration
+        - label: MultiAir fans
+        - label: Home Assistant integration
+  - type: textarea
+    id: state
+    attributes:
+      label: Output of /api/state
+      description: Paste the text of `http://open-firenet.local/api/state`. It tells us the model number, the firmware build and the values your stove reports. Remove your Wi-Fi name and addresses if you prefer.
+      render: json
+  - type: textarea
+    id: more
+    attributes:
+      label: Notes
+      description: Anything that does not work or looks odd.
