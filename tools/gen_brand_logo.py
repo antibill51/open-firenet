@@ -3,7 +3,8 @@
 
 The emblem is taken from assets/brand-icon@2x.png; the texts are drawn with DejaVu Sans Bold.
 
-    python3 tools/gen_brand_logo.py
+    python3 tools/gen_brand_logo.py          # writes the two logo files
+    python3 tools/gen_brand_logo.py --web    # prints the emblem as data URIs for open-firenet/web/index.html
 """
 import pathlib
 import numpy as np
@@ -83,5 +84,16 @@ def main():
     print(f"wrote brand-logo@2x.png ({W}x{H}) and brand-logo.png ({W // 2}x{H // 2})")
 
 
+def web():
+    """Prints the emblem as the two data URIs embedded in the web page (header logo, favicon)."""
+    import base64, io
+    for label, px in (("header logo (28 px shown, 84 px image)", 84), ("favicon", 64)):
+        im = emblem().resize((px, px), Image.LANCZOS).quantize(colors=64, method=Image.Quantize.FASTOCTREE)
+        buf = io.BytesIO()
+        im.save(buf, "PNG", optimize=True)
+        print(f"{label}:\ndata:image/png;base64,{base64.b64encode(buf.getvalue()).decode()}\n")
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    web() if "--web" in sys.argv else main()
