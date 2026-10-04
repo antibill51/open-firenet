@@ -453,8 +453,16 @@ input[type=range]::-webkit-slider-thumb {
   #sensorsTable th { font-size: 0.65rem; letter-spacing: 0; }
   #sensorsTable, #linkTable { table-layout: fixed; width: 100%; }
   #sensorsTable th, #sensorsTable td, #linkTable td { padding-left: 6px; padding-right: 6px; font-size: 0.8rem; overflow-wrap: anywhere; }
-  .subtabs .subtab-btn { flex: 1; min-width: 0; padding: 6px 4px; font-size: 0.72rem; line-height: 1.2; white-space: normal;
+  /* Width follows the label (longer words in French and German), the font follows the screen width, and a label
+     that still does not fit breaks rather than spilling out of its button. */
+  .subtabs { gap: 2px; }
+  .subtabs .subtab-btn { flex: 1 1 auto; min-width: 0; padding: 6px 3px; font-size: clamp(0.6rem, 2.9vw, 0.75rem); line-height: 1.2;
+                         white-space: normal; overflow-wrap: anywhere; text-align: center;
                          display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+  .page-tabs { gap: 2px; }
+  .page-tabs .tab-btn { flex: 1 1 auto !important; gap: 5px !important; padding: 8px 4px !important; font-size: clamp(0.7rem, 3.5vw, 0.9rem); overflow: hidden; }
+  .hero-state, .hero-labels { min-width: 0; }
+  .hero-labels h2, .hero-labels p { overflow-wrap: anywhere; }
 }
 /* Page tabs, inside the header. Wide screen: three columns, the side ones of equal width, so the tabs sit on the
    centre line of the page content whatever the width of the brand and of the language menu. Narrower: the tabs
