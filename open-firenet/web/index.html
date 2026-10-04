@@ -441,6 +441,21 @@ input[type=range]::-webkit-slider-thumb {
 .page { display: none; flex-direction: column; gap: inherit; }
 .page.active { display: flex; }
 .page > .card + .card, .page > .card + details.card { margin-top: 0 !important; }
+@media (max-width: 350px) { #fwVersion { display: none; } .hero-card { padding: 16px; } }
+@media (max-width: 420px) { header { padding: 10px 14px; } header .brand { font-size: 1rem; gap: 6px 8px; } }
+/* Control sub-tabs on a phone: they share the width of the card, icon above a label that may wrap. */
+@media (max-width: 600px) {
+  .subtabs { width: 100%; }
+  .mode-selector { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .mode-btn { padding: 10px 6px; overflow-wrap: anywhere; }
+  .mode-btn .m-desc { font-size: 0.68rem; }
+  .control-deck { padding: 16px; }
+  #sensorsTable th { font-size: 0.65rem; letter-spacing: 0; }
+  #sensorsTable, #linkTable { table-layout: fixed; width: 100%; }
+  #sensorsTable th, #sensorsTable td, #linkTable td { padding-left: 6px; padding-right: 6px; font-size: 0.8rem; overflow-wrap: anywhere; }
+  .subtabs .subtab-btn { flex: 1; min-width: 0; padding: 6px 4px; font-size: 0.72rem; line-height: 1.2; white-space: normal;
+                         display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+}
 /* Page tabs, inside the header. Wide screen: three columns, the side ones of equal width, so the tabs sit on the
    centre line of the page content whatever the width of the brand and of the language menu. Narrower: the tabs
    move to a second row and share its width. */
@@ -456,6 +471,7 @@ header .header-actions { justify-self: end; }
 @media (max-width: 1100px) {
   header { display: flex; flex-wrap: wrap; row-gap: 10px; }
   header .brand { flex: 1 1 0; min-width: 0; }
+  header .brand { flex-wrap: nowrap; }
   .page-tabs { order: 3; flex-basis: 100%; }
   .page-tabs .tab-btn { flex: 1; min-width: 0; max-width: 320px; padding: 8px 6px; }
 }
@@ -707,7 +723,7 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
       <div class="deck-title" style="margin:0">
         <span>🎛️</span> <span id="lblDeckTitle">Pilotage du Poêle</span>
       </div>
-      <div style="display:flex;gap:6px;background:#10141e;padding:4px;border-radius:10px;border:1px solid var(--border)">
+      <div class="subtabs" style="display:flex;gap:6px;background:#10141e;padding:4px;border-radius:10px;border:1px solid var(--border)">
         <button type="button" class="subtab-btn active" id="subtabBtnDirect" onclick="showCtrlTab('ctrl-direct')">🔥 <span id="lblSubtabDirect">Commandes directes</span></button>
         <button type="button" class="subtab-btn" id="subtabBtnSched" onclick="showCtrlTab('ctrl-sched')">📅 <span id="lblSubtabSched">Programmation</span></button>
         <button type="button" class="subtab-btn" id="subtabBtnParams" onclick="showCtrlTab('ctrl-params')">⚙️ <span id="lblSubtabParams">Paramètres</span></button>
