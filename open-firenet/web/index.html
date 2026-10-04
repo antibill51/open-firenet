@@ -441,15 +441,18 @@ input[type=range]::-webkit-slider-thumb {
 .page { display: none; flex-direction: column; gap: inherit; }
 .page.active { display: flex; }
 .page > .card + .card, .page > .card + details.card { margin-top: 0 !important; }
-/* Page tabs, inside the header: they take the room between the brand and the language menu; on a narrow screen
-   they move to a second row and share its width. */
-.page-tabs { display: flex; gap: 6px; flex: 1; justify-content: center; margin: 0 16px; min-width: 0; }
-.page-tabs .tab-btn { flex: 1; max-width: 200px; text-align: center; text-decoration: none; white-space: nowrap; padding: 8px 12px; }
-@media (max-width: 760px) {
-  header { flex-wrap: wrap; row-gap: 10px; }
+/* Page tabs, inside the header. Wide screen: three columns, the side ones of equal width, so the tabs sit on the
+   centre line of the page content whatever the width of the brand and of the language menu. Narrower: the tabs
+   move to a second row and share its width. */
+header { display: grid; grid-template-columns: 1fr auto 1fr; column-gap: 16px; }
+header .header-actions { justify-self: end; }
+.page-tabs { display: flex; gap: 6px; justify-content: center; min-width: 0; }
+.page-tabs .tab-btn { min-width: 110px; text-align: center; text-decoration: none; white-space: nowrap; padding: 8px 12px; }
+@media (max-width: 1260px) {
+  header { display: flex; flex-wrap: wrap; row-gap: 10px; }
   header .brand { flex: 1 1 0; min-width: 0; }
-  .page-tabs { order: 3; flex-basis: 100%; margin: 0; }
-  .page-tabs .tab-btn { max-width: none; padding: 8px 6px; }
+  .page-tabs { order: 3; flex-basis: 100%; }
+  .page-tabs .tab-btn { flex: 1; min-width: 0; max-width: 320px; padding: 8px 6px; }
 }
 details.advanced > summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; color: var(--text-dim); }
 details.advanced[open] > summary { color: var(--text); }
