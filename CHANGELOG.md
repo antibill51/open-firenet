@@ -3,7 +3,8 @@
 ## Non publié
 
 ### Features
-- MQTT support, optional and off by default, for home automation systems other than Home Assistant (Jeedom, openHAB, Node-RED, Domoticz...). The bridge publishes the stove state to your broker (one JSON message, and one topic per value) with its availability, and accepts the same commands as the REST API (on/off, mode, power, target temperature, MultiAir, schedule...). Set it up in the Network tab of the web page; see the MQTT section of the README for the topics. (#52)
+- Web page reorganised into three tabs at the top: **Stove** (the dashboard and controls, unchanged), **Bridge** (Wi-Fi, MQTT, restart) and **Diagnostics** (link with the stove, exchange log, all values, and the frame delay under "Advanced"). Each tab has its own address (`/#bridge`, `/#diagnostics`), the page opens on Bridge during the first Wi-Fi setup, and the "stove does not answer" banner links to Diagnostics. (#55)
+- MQTT support, optional and off by default, for home automation systems other than Home Assistant (Jeedom, openHAB, Node-RED, Domoticz...). The bridge publishes the stove state to your broker (one JSON message, and one topic per value) with its availability, and accepts the same commands as the REST API (on/off, mode, power, target temperature, MultiAir, schedule...). Set it up in the Bridge tab of the web page; see the MQTT section of the README for the topics. (#52)
 
 ### Fixes
 - Target temperature: a value with a half degree (21.5 °C), sent through the REST API or MQTT, is rounded to the whole degree, as the stove sets its target in steps of 1 °C.

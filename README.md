@@ -222,11 +222,15 @@ Once connected, open **`http://open-firenet.local`** in any web browser (or use 
     - **Frost protection** on/off and target temperature (4 – 10 °C)
     - **Room sensor calibration** offset (-4.0 – +4.0 °C)
     - **Baking oven** target temperature (DOMO BACK only)
-- **Supervision & Diagnostics Deck**:
-  - **Full Telemetry**: every value reported by the stove, with its name (temperatures, pellet consumption, auger & exhaust fan, air flaps, runtime hours, service countdown, error and warning codes, error counters, versions...)
-  - **Network & WiFi**: IP, MAC address, signal strength, AP scan, Wi-Fi reconfiguration & reset
-  - **USB CDC Link**: USB CDC state, packet counters, protocol revision
-  - **CDC Logs**: collapsible real-time console streaming raw bidirectional USB packets with sanitized WiFi credentials (identical consecutive lines are merged), and the delay between frames sent to the stove (50 – 600 ms, default 150 ms)
+- **Bridge tab** (`/#bridge`):
+  - **Network**: IP, signal strength, Wi-Fi scan, Wi-Fi reconfiguration & reset
+  - **MQTT**: broker settings and connection status (see [MQTT](#mqtt))
+  - **Restart** of the bridge
+- **Diagnostics tab** (`/#diagnostics`):
+  - **Link with the stove**: USB CDC state, packet counters, protocol revision
+  - **Exchange log**: real-time console of the raw frames exchanged with the stove, with sanitized WiFi credentials (identical consecutive lines are merged), and its download button
+  - **Advanced**: delay between frames sent to the stove (50 – 600 ms, default 150 ms)
+  - **All values**: every value reported by the stove, with its name (temperatures, pellet consumption, auger & exhaust fan, air flaps, runtime hours, service countdown, error and warning codes, error counters, versions...)
 
 ### Mobile Interface
 
@@ -477,7 +481,7 @@ Supported fields:
 
 ## MQTT
 
-Optional and off by default. The bridge can publish the stove state to an MQTT broker and accept commands from it, for home automation systems other than Home Assistant (Jeedom, openHAB, Node-RED, Domoticz...). Set it up in the **Network** tab of the web page (broker address, port, user, password, base topic), or with `POST /api/mqtt`.
+Optional and off by default. The bridge can publish the stove state to an MQTT broker and accept commands from it, for home automation systems other than Home Assistant (Jeedom, openHAB, Node-RED, Domoticz...). Set it up in the **Bridge** tab of the web page (broker address, port, user, password, base topic), or with `POST /api/mqtt`.
 
 | Topic | Direction | Content |
 |---|---|---|

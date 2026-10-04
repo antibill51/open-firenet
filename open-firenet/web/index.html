@@ -438,8 +438,13 @@ input[type=range]::-webkit-slider-thumb {
 .subtab-btn:hover { color: var(--text); background: rgba(255,255,255,0.04); }
 .subtab-btn.active { color: var(--text); background: #202738; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }
 
-.tab-content { display: none; }
-.tab-content.active { display: block; }
+.page { display: none; flex-direction: column; gap: inherit; }
+.page.active { display: flex; }
+.page > .card + .card, .page > .card + details.card { margin-top: 0 !important; }
+.page-tabs { display: flex; gap: 8px; padding: 8px 20px; border-bottom: 1px solid var(--border); background: rgba(22, 27, 38, 0.6); overflow-x: auto; }
+.page-tabs .tab-btn { text-decoration: none; white-space: nowrap; }
+details.advanced > summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; color: var(--text-dim); }
+details.advanced[open] > summary { color: var(--text); }
 .log-console {
   background: #0a0d14; border: 1px solid var(--border); border-radius: 10px;
   padding: 10px 12px; font-family: ui-monospace, Menlo, Consolas, monospace;
@@ -567,6 +572,11 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
     </select>
   </div>
 </header>
+<nav class="page-tabs" aria-label="Pages">
+  <a class="tab-btn active" id="pageBtnStove" href="#stove">Stove</a>
+  <a class="tab-btn" id="pageBtnBridge" href="#bridge">Bridge</a>
+  <a class="tab-btn" id="pageBtnDiag" href="#diagnostics">Diagnostics</a>
+</nav>
 <main>
   <div id="apBanner" style="display:none;background:rgba(56,189,248,0.15);border:1px solid var(--blue);border-radius:10px;padding:12px 16px;font-size:0.9rem;align-items:center;gap:12px">
     <span style="font-size:1.5rem">📶</span>
@@ -581,6 +591,7 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
     <div>
       <b id="linkHintTitle"></b>
       <p id="linkHintDesc" style="font-size:0.8rem;color:var(--text-dim);margin-top:2px"></p>
+      <a id="linkHintMore" href="#diagnostics" style="font-size:0.8rem;color:var(--amber)"></a>
     </div>
   </div>
 
@@ -591,6 +602,8 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
     </div>
   </div>
 
+  <!-- Page 1: the stove dashboard and controls -->
+  <div class="page active" id="page-stove">
   <!-- Hero Card: Main Stove State -->
   <div class="hero-card">
     <div class="hero-state">
@@ -939,30 +952,10 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
       </div>
     </div>
   </div>
-
-  <!-- Tabs Navigation -->
-  <div class="tabs">
-    <button class="tab-btn active" id="tabBtnTelemetry" onclick="showTab('tab-telemetry')">📊 Télémétrie complète</button>
-    <button class="tab-btn" id="tabBtnNetwork" onclick="showTab('tab-network')">📶 Réseau & WiFi</button>
-    <button class="tab-btn" id="tabBtnLink" onclick="showTab('tab-link')">⚙️ Liaison CDC</button>
-    <button class="tab-btn" id="tabBtnLogs" onclick="showTab('tab-logs')">📜 Logs CDC</button>
   </div>
 
-  <!-- Tab 1: Telemetry -->
-  <div class="tab-content active" id="tab-telemetry">
-    <div class="card" style="padding:14px">
-      <div style="margin-bottom:12px;display:flex;gap:10px">
-        <input class="input-text" id="sensorSearch" placeholder="🔍 Filtrer les 53 capteurs..." oninput="filterSensors(this.value)">
-      </div>
-      <table id="sensorsTable">
-        <thead><tr><th id="thSensorName">Capteur</th><th id="thSensorId">Identifiant</th><th id="thSensorVal">Valeur</th></tr></thead>
-        <tbody id="sensorsBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Tab 2: Network -->
-  <div class="tab-content" id="tab-network">
+  <!-- Page 2: bridge settings (Wi-Fi, MQTT, restart) -->
+  <div class="page" id="page-bridge">
     <div class="card" style="gap:16px">
       <h3 id="lblNetTitle">Configuration Réseau</h3>
       <div style="display:flex;justify-content:space-between;color:var(--text-dim);font-size:0.9rem;flex-wrap:wrap;gap:8px">
@@ -1024,11 +1017,19 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
         <button type="button" class="power-btn" id="btnSaveMqtt" style="padding:8px 16px;font-size:0.9rem" onclick="saveMqtt()">Save</button>
       </div>
     </div>
+    <div class="card" style="gap:12px;margin-top:16px">
+      <h3 id="lblBridgeRestart"></h3>
+      <p id="lblBridgeRestartDesc" style="font-size:0.85rem;color:var(--text-dim);margin:0"></p>
+      <div style="display:flex;justify-content:flex-end">
+        <button class="btn-lock" id="btnRestart" style="color:var(--amber);border-color:var(--amber)" onclick="restartDongle()">🔄 Redémarrer la clef</button>
+      </div>
+    </div>
   </div>
 
-  <!-- Tab 3: CDC Link -->
-  <div class="tab-content" id="tab-link">
+  <!-- Page 3: diagnostics (link status, logs, every value, advanced settings) -->
+  <div class="page" id="page-diagnostics">
     <div class="card">
+      <h3 id="lblDiagLink"></h3>
       <table id="linkTable">
         <tbody>
           <tr><td id="lblCdcPort" style="color:var(--text-dim)">Liaison série USB</td><td id="cdcState">Opérationnelle (Full Speed)</td></tr>
@@ -1040,24 +1041,9 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
           <tr><td id="lblUptime" style="color:var(--text-dim)">Temps d'activité (Uptime)</td><td id="dongleUptime">--</td></tr>
         </tbody>
       </table>
-      <div style="display:flex;justify-content:flex-end;margin-top:14px">
-        <button class="btn-lock" id="btnRestart" style="color:var(--amber);border-color:var(--amber)" onclick="restartDongle()">🔄 Redémarrer la clef</button>
-      </div>
     </div>
-  </div>
-
-  <!-- Tab 4: CDC Logs -->
-  <div class="tab-content" id="tab-logs">
-    <div class="card" style="padding:14px;gap:10px">
-      <div style="font-size:0.85rem" id="lblTxGap">Délai entre trames vers le poêle</div>
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <input type="range" id="txGap" min="50" max="600" step="50" value="150" style="flex:1;min-width:160px">
-        <span><b id="txGapVal">600</b> ms</span>
-        <button class="btn-lang" id="btnTxGapDefault" style="padding:4px 10px;font-size:0.8rem" onclick="setTxGap(150)">Défaut (150)</button>
-      </div>
-      <div style="font-size:0.75rem;color:var(--text-dim)" id="lblTxGapHelp">Appliqué immédiatement et conservé après redémarrage. Trop bas : le poêle peut ne traiter qu'une trame sur deux.</div>
-    </div>
-    <div class="card" style="padding:14px;gap:10px">
+    <div class="card" style="padding:14px;gap:10px;margin-top:16px">
+      <h3 id="lblDiagLogs"></h3>
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
         <div style="font-size:0.85rem">
           <span style="color:var(--blue)">■</span> <span id="lblLogRx">Poêle → Clef (RX)</span>
@@ -1071,6 +1057,28 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
         </div>
       </div>
       <pre id="logConsole" class="log-console">…</pre>
+    </div>
+    <details class="card advanced" style="padding:14px;margin-top:16px">
+      <summary id="lblDiagAdvanced"></summary>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:12px">
+      <div style="font-size:0.85rem" id="lblTxGap">Délai entre trames vers le poêle</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <input type="range" id="txGap" min="50" max="600" step="50" value="150" style="flex:1;min-width:160px">
+        <span><b id="txGapVal">600</b> ms</span>
+        <button class="btn-lang" id="btnTxGapDefault" style="padding:4px 10px;font-size:0.8rem" onclick="setTxGap(150)">Défaut (150)</button>
+      </div>
+      <div style="font-size:0.75rem;color:var(--text-dim)" id="lblTxGapHelp">Appliqué immédiatement et conservé après redémarrage. Trop bas : le poêle peut ne traiter qu'une trame sur deux.</div>
+      </div>
+    </details>
+    <div class="card" style="padding:14px;margin-top:16px">
+      <h3 id="lblDiagValues" style="margin-bottom:12px"></h3>
+      <div style="margin-bottom:12px;display:flex;gap:10px">
+        <input class="input-text" id="sensorSearch" placeholder="🔍 Filtrer les 53 capteurs..." oninput="filterSensors(this.value)">
+      </div>
+      <table id="sensorsTable">
+        <thead><tr><th id="thSensorName">Capteur</th><th id="thSensorId">Identifiant</th><th id="thSensorVal">Valeur</th></tr></thead>
+        <tbody id="sensorsBody"></tbody>
+      </table>
     </div>
   </div>
 </main>
@@ -1156,10 +1164,16 @@ const I18N = {
     offsetSubTitle: "Correction température ambiante",
     offsetDesc: "Décalage appliqué",
     btnApplyRoomOffset: "Appliquer calibrage",
-    tabTelemetry: "📊 Télémétrie complète",
-    tabNetwork: "📶 Réseau & WiFi",
-    tabLink: "⚙️ Liaison CDC",
-    tabLogs: "📜 Logs CDC",
+    pageStove: "🔥 Poêle",
+    pageBridge: "📶 Clé",
+    pageDiag: "🩺 Diagnostic",
+    diagLink: "Liaison avec le poêle",
+    diagLogs: "Journal des échanges",
+    diagValues: "Toutes les valeurs",
+    diagAdvanced: "Avancé",
+    bridgeRestart: "Redémarrage",
+    bridgeRestartDesc: "Redémarre la clé. Le poêle continue de fonctionner ; la liaison revient en une minute environ.",
+    linkHintMore: "Ouvrir le diagnostic →",
     schedActive: "Programmation active",
     schedActiveDesc: "Active ou désactive le planning des plages horaires de chauffe.",
     setbackTemp: "Température de maintien (Éco)",
@@ -1210,7 +1224,7 @@ const I18N = {
     linkHintNoHostTitle: "La clé n'est pas reliée au poêle en USB",
     linkHintNoHostDesc: "Branchez le poêle sur le port USB natif de la carte (marqué « USB », pas « UART » ou « COM »), avec un câble de données, et vérifiez que le poêle est sous tension.",
     linkHintSilentTitle: "Le poêle ne répond pas",
-    linkHintSilentDesc: "La clé est bien branchée en USB mais le poêle n'a encore rien envoyé. Coupez puis remettez le courant du poêle ; si rien ne change, envoyez le journal (onglet Logs CDC).",
+    linkHintSilentDesc: "La clé est bien branchée en USB mais le poêle n'a encore rien envoyé. Coupez puis remettez le courant du poêle ; si rien ne change, envoyez le journal (onglet Diagnostic).",
     ssidPlaceholder: "Nom du réseau (SSID)",
     passPlaceholder: "Mot de passe",
     btnForgetWifi: "Oublier le WiFi",
@@ -1364,10 +1378,16 @@ const I18N = {
     offsetSubTitle: "Room temperature offset",
     offsetDesc: "Applied calibration offset",
     btnApplyRoomOffset: "Apply calibration",
-    tabTelemetry: "📊 Full Telemetry",
-    tabNetwork: "📶 Network & WiFi",
-    tabLink: "⚙️ USB CDC Link",
-    tabLogs: "📜 CDC Logs",
+    pageStove: "🔥 Stove",
+    pageBridge: "📶 Bridge",
+    pageDiag: "🩺 Diagnostics",
+    diagLink: "Link with the stove",
+    diagLogs: "Exchange log",
+    diagValues: "All values",
+    diagAdvanced: "Advanced",
+    bridgeRestart: "Restart",
+    bridgeRestartDesc: "Restarts the bridge. The stove keeps running; the link comes back in about a minute.",
+    linkHintMore: "Open diagnostics →",
     schedActive: "Heating schedule active",
     schedActiveDesc: "Enables or disables the weekly heating schedule.",
     setbackTemp: "Setback temperature (Eco)",
@@ -1418,7 +1438,7 @@ const I18N = {
     linkHintNoHostTitle: "The bridge is not connected to the stove over USB",
     linkHintNoHostDesc: "Plug the stove into the board's native USB port (labelled \"USB\", not \"UART\" or \"COM\"), with a data cable, and check that the stove is powered.",
     linkHintSilentTitle: "The stove does not answer",
-    linkHintSilentDesc: "The bridge is connected over USB but the stove has not sent anything yet. Power-cycle the stove; if nothing changes, send the log (CDC Logs tab).",
+    linkHintSilentDesc: "The bridge is connected over USB but the stove has not sent anything yet. Power-cycle the stove; if nothing changes, send the log (Diagnostics tab).",
     ssidPlaceholder: "Network Name (SSID)",
     passPlaceholder: "Password",
     btnForgetWifi: "Forget WiFi",
@@ -1572,10 +1592,16 @@ const I18N = {
     offsetSubTitle: "Raumtemperatur-Korrektur",
     offsetDesc: "Angewendeter Offset",
     btnApplyRoomOffset: "Kalibrierung übernehmen",
-    tabTelemetry: "📊 Vollständige Telemetrie",
-    tabNetwork: "📶 Netzwerk & WLAN",
-    tabLink: "⚙️ USB CDC Verbindung",
-    tabLogs: "📜 CDC Protokolle",
+    pageStove: "🔥 Ofen",
+    pageBridge: "📶 Stick",
+    pageDiag: "🩺 Diagnose",
+    diagLink: "Verbindung zum Ofen",
+    diagLogs: "Kommunikationsprotokoll",
+    diagValues: "Alle Werte",
+    diagAdvanced: "Erweitert",
+    bridgeRestart: "Neustart",
+    bridgeRestartDesc: "Startet den Stick neu. Der Ofen läuft weiter; die Verbindung ist nach etwa einer Minute wieder da.",
+    linkHintMore: "Diagnose öffnen →",
     schedActive: "Heizzeiten aktiv",
     schedActiveDesc: "Aktiviert oder deaktiviert den wöchentlichen Heizzeitplan.",
     setbackTemp: "Absenktemperatur (Eco)",
@@ -1626,7 +1652,7 @@ const I18N = {
     linkHintNoHostTitle: "Der Stick ist nicht per USB mit dem Ofen verbunden",
     linkHintNoHostDesc: "Den Ofen an den nativen USB-Anschluss der Platine anschließen (mit „USB“ beschriftet, nicht „UART“ oder „COM“), mit einem Datenkabel, und prüfen, ob der Ofen Strom hat.",
     linkHintSilentTitle: "Der Ofen antwortet nicht",
-    linkHintSilentDesc: "Der Stick ist per USB verbunden, aber der Ofen hat noch nichts gesendet. Ofen kurz vom Strom trennen; wenn sich nichts ändert, das Protokoll senden (Reiter CDC-Logs).",
+    linkHintSilentDesc: "Der Stick ist per USB verbunden, aber der Ofen hat noch nichts gesendet. Ofen kurz vom Strom trennen; wenn sich nichts ändert, das Protokoll senden (Reiter Diagnose).",
     ssidPlaceholder: "Netzwerkname (SSID)",
     passPlaceholder: "Passwort",
     btnForgetWifi: "WLAN vergessen",
@@ -1765,10 +1791,16 @@ function applyLang() {
   if (document.getElementById('lblOffsetSubTitle')) document.getElementById('lblOffsetSubTitle').textContent = t.offsetSubTitle;
   if (document.getElementById('lblOffsetDesc')) document.getElementById('lblOffsetDesc').textContent = t.offsetDesc;
   if (document.getElementById('btnApplyRoomOffset')) document.getElementById('btnApplyRoomOffset').textContent = t.btnApplyRoomOffset;
-  document.getElementById('tabBtnTelemetry').textContent = t.tabTelemetry;
-  document.getElementById('tabBtnNetwork').textContent = t.tabNetwork;
-  document.getElementById('tabBtnLink').textContent = t.tabLink;
-  document.getElementById('tabBtnLogs').textContent = t.tabLogs;
+  document.getElementById('pageBtnStove').textContent = t.pageStove;
+  document.getElementById('pageBtnBridge').textContent = t.pageBridge;
+  document.getElementById('pageBtnDiag').textContent = t.pageDiag;
+  document.getElementById('lblDiagLink').textContent = t.diagLink;
+  document.getElementById('lblDiagLogs').textContent = t.diagLogs;
+  document.getElementById('lblDiagValues').textContent = t.diagValues;
+  document.getElementById('lblDiagAdvanced').textContent = t.diagAdvanced;
+  document.getElementById('lblBridgeRestart').textContent = t.bridgeRestart;
+  document.getElementById('lblBridgeRestartDesc').textContent = t.bridgeRestartDesc;
+  document.getElementById('linkHintMore').textContent = t.linkHintMore;
   if (document.getElementById('lblSchedActiveTitle')) document.getElementById('lblSchedActiveTitle').textContent = t.schedActive;
   if (document.getElementById('lblSchedActiveDesc')) document.getElementById('lblSchedActiveDesc').textContent = t.schedActiveDesc;
   if (document.getElementById('lblSetbackTemp')) document.getElementById('lblSetbackTemp').textContent = t.setbackTemp;
@@ -1867,24 +1899,32 @@ function showCtrlTab(id) {
   }
 }
 
-function showTab(id) {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  const btnMap = {'tab-network':'tabBtnNetwork','tab-link':'tabBtnLink','tab-logs':'tabBtnLogs','tab-telemetry':'tabBtnTelemetry'};
-  const btn = document.getElementById(btnMap[id] || 'tabBtnTelemetry');
-  if (btn) btn.classList.add('active');
-  const tab = document.getElementById(id);
-  if (tab) tab.classList.add('active');
-  if (id === 'tab-network' && document.getElementById('ssidSelect').options.length <= 1) {
-    scanWifi();
-  }
-  if (id === 'tab-logs') fetchLogs();
+// Pages: one address per page (#stove, #bridge, #diagnostics) so that the documentation and the banners can link
+// to them. Unknown or empty hash = the stove page.
+const PAGES = { stove: 'pageBtnStove', bridge: 'pageBtnBridge', diagnostics: 'pageBtnDiag' };
+function currentPage() {
+  const h = location.hash.replace('#', '');
+  return PAGES[h] ? h : 'stove';
 }
+function showPage(name) {
+  if (!PAGES[name]) name = 'stove';
+  if (currentPage() !== name) { location.hash = name; return; }   // the hashchange event calls back
+  for (const p in PAGES) {
+    document.getElementById('page-' + p).classList.toggle('active', p === name);
+    document.getElementById(PAGES[p]).classList.toggle('active', p === name);
+  }
+  if (name === 'bridge') {
+    if (document.getElementById('ssidSelect').options.length <= 1) scanWifi();
+    loadMqtt(false);
+  }
+  if (name === 'diagnostics') fetchLogs();
+  window.scrollTo(0, 0);
+}
+window.addEventListener('hashchange', () => showPage(currentPage()));
 
 // --- Logs CDC : /log renvoie des lignes "[millis][rx|tx] contenu" ------------
 async function fetchLogs() {
-  const tab = document.getElementById('tab-logs');
-  if (!tab || !tab.classList.contains('active')) return;
+  if (currentPage() !== 'diagnostics') return;
   if (!document.getElementById('logAuto').checked) return;
   try {
     const r = await fetch('/log');
@@ -1920,7 +1960,7 @@ async function restartDongle() {
   try { await fetch('/api/restart', {method: 'POST'}); } catch (e) { /* la carte redémarre */ }
   toast(I18N[curLang].restartToast);
 }
-// MQTT settings (Network tab). The password is never sent back by the bridge: the field stays empty and is only
+// MQTT settings (Bridge page). The password is never sent back by the bridge: the field stays empty and is only
 // posted when something was typed in it.
 let _mqtt = null;
 function renderMqtt() {
@@ -1962,7 +2002,7 @@ async function saveMqtt() {
   } catch (e) { /* shown by the status badge at the next refresh */ }
 }
 loadMqtt(true);
-setInterval(() => { if (document.getElementById('tab-network').classList.contains('active')) loadMqtt(false); }, 3000);
+setInterval(() => { if (currentPage() === 'bridge') loadMqtt(false); }, 3000);
 
 let _txGapTimer = null;
 async function setTxGap(ms) {
@@ -2398,7 +2438,7 @@ async function saveSchedule() {
 }
 
 // WiFi credentials are submitted by the native <form> POST to /api/wifi (see the
-// Network tab). The board saves them and returns a reboot confirmation page. A form
+// Bridge page). The board saves them and returns a reboot confirmation page. A form
 // submission is used instead of fetch()/confirm()/alert() because captive portal
 // browsers (macOS/iOS) block XHR to local IPs and suppress those dialogs (issue #8).
 
@@ -2512,8 +2552,7 @@ async function tick() {
     if (s.wifi_mode === 'AP' && !window.apHandled) {
       window.apHandled = true;
       document.getElementById('apBanner').style.display = 'flex';
-      showTab('tab-network');
-      scanWifi();
+      showPage('bridge');   // first setup: straight to the Wi-Fi form
     }
 
     document.getElementById('connState').textContent = s.version_ack ? t.connected : t.waiting;
@@ -2832,6 +2871,7 @@ async function tick() {
 }
 
 applyLang();
+showPage(currentPage());
 setInterval(tick, 2000);
 setInterval(fetchLogs, 1500);
 tick();
