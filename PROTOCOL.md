@@ -60,7 +60,7 @@ Rules read in the stove firmware, and why the order matters:
 - 2.28 recognises both `GET_WIFI_VERSION=0` and `GET_CDCDEVICE_VERSION`: it must get the
   2.28 frame before the 2.26/2.27 one, whose `APP=111` it would reject.
 
-Open-Firenet therefore probes 2.29 → 2.28 → 2.26/2.27, about 3 s each, one frame at a
+Open Firenet therefore probes 2.29 → 2.28 → 2.26/2.27, about 3 s each, one frame at a
 time, and keeps the first one acknowledged. After a link reset it tries the family that
 worked first. `version_frame` in `/api/state` reports it (`V3`, `V28`, `V1`).
 
@@ -115,7 +115,7 @@ Sent in both `POST_CDCDEVICE_STATUS` (stove → dongle) and `GET_CDCDEVICE_STATU
 | 20 | cdc_device | `1` | `1` |
 
 > [!TIP]
-> In Open-Firenet, field 17 (`wpa2`) is automatically sanitized to `********` by `sanitizeForLog()` before being emitted to debug logs, the Web UI console, or Serial output, preventing accidental exposure of private WiFi credentials when sharing diagnostic traces.
+> In Open Firenet, field 17 (`wpa2`) is automatically sanitized to `********` by `sanitizeForLog()` before being emitted to debug logs, the Web UI console, or Serial output, preventing accidental exposure of private WiFi credentials when sharing diagnostic traces.
 
 `GET_CDCDEVICE_STATUS` (dongle → stove) has 3 extra OTA fields (`0\n0\n0\n`) after
 field 20. `POST_CDCDEVICE_STATUS` (stove → dongle) is terminated with `-------\n`.
@@ -164,7 +164,7 @@ stoves):**
 - The stove prepares its data in the `GET_REVISION` handler and emits one `POST_*` per
   `TRANSFER_COMPLETED` (controls first). It only re-sends records whose value changed;
   a full refresh of all sensors comes every 30th `GET_REVISION`.
-- A stove idling in standby can thus stay silent for more than a minute: Open-Firenet
+- A stove idling in standby can thus stay silent for more than a minute: Open Firenet
   sends a bare `POST_FIRENET_STATUS` every ~20 s, which the stove always answers, so its
   own 60 s "no data" watchdog does not restart the link.
 - Command frames (`GET_CONTROLS=1; ...`) also replace the registered control names: the
@@ -244,7 +244,7 @@ for *p* < 5 and *p* + 1 from 5 on (records 0–36). Because the stove stores the
 value of a `GET_CONTROLS=1` frame in its record *k*, the command frame must follow this
 order. The stove then applies **all** its records 1–36, whatever the number of values
 received (read in the 2.27 firmware): every value sent must be the stove's current one
-unless it is the commanded one. Open-Firenet sends records 0–30 in this order once the
+unless it is the commanded one. Open Firenet sends records 0–30 in this order once the
 stove has posted them; records 31–36 keep the values the stove reloads itself at each
 `GET_REVISION`.
 
@@ -290,7 +290,7 @@ Consequences:
   a handful and the high-index counters are never emitted — they are not “missing”, the
   stove was never asked for them.
 - To read the cumulative counters (pellet hours, total consumption, service countdown),
-  you **must register names up to at least index 52** (Open-Firenet registers all 88). There is no way to address slot
+  you **must register names up to at least index 52** (Open Firenet registers all 88). There is no way to address slot
   47 without also naming 0…46 — the mapping always starts at 0.
 
 A nameless / near-empty `GET_SENSORS` therefore returns just slot 0 (room temperature).
@@ -315,7 +315,7 @@ flush.)
 The official key does not hold the sensor names: it fetches them from the RIKA server
 and registers them with the stove, so the order of the RIKA cloud `sensors` object is
 the slot order. A full cloud dump in its natural order lines up position by position with
-every slot previously identified here (live tests) and in the stove firmware. Open-Firenet
+every slot previously identified here (live tests) and in the stove firmware. Open Firenet
 uses shorter names on the wire (some official names are longer than the stove's 32-byte
 name field, and 88 long names would not fit the stove's 2048-byte receive buffer); the
 official name is given for reference.
@@ -323,7 +323,7 @@ official name is given for reference.
 Indices are those of 2.28 / 2.29 stoves. **2.26 / 2.27** have no slot 2: their slot *p*
 is slot *p* below for *p* < 2 and *p* + 1 from 2 on (87 slots).
 
-| Index | Name (Open-Firenet) | Official name | Notes |
+| Index | Name (Open Firenet) | Official name | Notes |
 |---|---|---|---|
 | 0 | roomTemp | `inputRoomTemperature` | Room temperature ×10 (246 = 24.6 °C); 1024 = no room sensor connected |
 | 1 | flame | `inputFlameTemperature` | Flame / flue temperature (°C) — observed 18→580 across a full burn cycle |
@@ -506,7 +506,7 @@ Key points:
 Two ways to give the dongle its own WiFi credentials:
 
 - **Captive portal** — on first boot (or after a reset) the dongle starts an open
-  access point `Open-Firenet-Setup`; the captive portal lets you pick your 2.4 GHz
+  access point `Open Firenet Setup`; the captive portal lets you pick your 2.4 GHz
   network and enter the password. Credentials are stored and the dongle reboots into
   station mode.
 - **Serial command** — send `SETWIFI:<ssid>:<password>` over the ESP32 serial port
@@ -550,7 +550,7 @@ setup. A plain `WiFi.begin()` alone tends not to associate.
 The stove reboots the dongle after **360 seconds** without a `POST_CDCDEVICE_STATUS`
 (2.29). Keep the keepalive well under that.
 
-Open-Firenet also restarts itself after 60 s without any data from the stove; on
+Open Firenet also restarts itself after 60 s without any data from the stove; on
 2.26 / 2.27 the `POST_FIRENET_STATUS` ping (every ~20 s) keeps an idle stove answering.
 
 ---

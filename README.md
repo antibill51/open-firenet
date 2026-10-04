@@ -52,11 +52,11 @@ The stove acts as USB host; the ESP32-S3 acts as USB device (CDC class, VID `0x3
 
 ## Flashing & Installation
 
-### Option 1 — Open-Firenet Installer (GUI & CLI — Recommended)
+### Option 1 — Open Firenet Installer (GUI & CLI — Recommended)
 
-The easiest and recommended way to install, flash, configure, and wirelessly update your Open-Firenet dongle on **Windows**, **macOS**, and **Linux** without needing Python, `arduino-cli`, or `esptool`.
+The easiest and recommended way to install, flash, configure, and wirelessly update your Open Firenet dongle on **Windows**, **macOS**, and **Linux** without needing Python, `arduino-cli`, or `esptool`.
 
-Download the standalone executable for your operating system from [**Open-Firenet Installer Releases**](https://github.com/openfirenet/open-firenet-installer/releases):
+Download the standalone executable for your operating system from [**Open Firenet Installer Releases**](https://github.com/openfirenet/open-firenet-installer/releases):
 
 | Operating System | Pre-compiled Standalone Binary |
 |---|---|
@@ -163,12 +163,12 @@ Then inside WSL:
 
 ## First boot — WiFi provisioning
 
-On first boot (or if credentials were reset), the bridge enters **provisioning mode** with its own Wi-Fi Access Point: **`Open-Firenet-Setup`** (open network, no password).
+On first boot (or if credentials were reset), the bridge enters **provisioning mode** with its own Wi-Fi Access Point: **`Open Firenet Setup`** (open network, no password).
 
 Two ways to provision:
 
 ### Option A — Captive Portal (smartphone or PC, recommended)
-1. Connect your phone or laptop to the Wi-Fi network **`Open-Firenet-Setup`**.
+1. Connect your phone or laptop to the Wi-Fi network **`Open Firenet Setup`**.
 2. The captive portal opens automatically (or browse to `http://open-firenet.local` or `http://192.168.4.1`).
 3. Select your 2.4 GHz home Wi-Fi from the scanned networks list, enter your Wi-Fi password, and click **Save / Connect**.
 4. The dongle reboots, connects to your LAN, and becomes available at **`http://open-firenet.local`**.
@@ -283,7 +283,7 @@ MultiAir forced convection fans are automatically detected and displayed in the 
 
 ## REST API V2
 
-Open-Firenet V2 provides a clean, unified REST JSON API with natural units (temperatures in °C as floats, power as percentage integers, clean mode strings):
+Open Firenet V2 provides a clean, unified REST JSON API with natural units (temperatures in °C as floats, power as percentage integers, clean mode strings):
 
 | Endpoint | Method | Description |
 |---|---|---|
@@ -303,7 +303,7 @@ Open-Firenet V2 provides a clean, unified REST JSON API with natural units (temp
 ```json
 {
   "device": {
-    "name": "Open-Firenet",
+    "name": "Open Firenet",
     "version": "x.y.z",
     "ip": "192.168.1.93",
     "mac": "34:85:18:XX:XX:XX",

@@ -3,7 +3,7 @@
 ## Non publié
 
 ### Fixes
-- Web page: the name is written "Open Firenet", as on the logo, instead of "Open-Firenet".
+- The name is written "Open Firenet" everywhere, as on the logo, without the hyphen: web page, documentation, and the name reported by `/api/state` and `/api/version`. The Wi-Fi network created for the first setup is now called `Open Firenet Setup`.
 - Web page: the hint under the Wi-Fi form ("If the button does nothing, open http://192.168.4.1...") is now shown in the language of the page instead of in French and English at once.
 - Web page: on a first visit the page uses the language of your browser (French, German, or English for any other) instead of always starting in French.
 
@@ -21,7 +21,7 @@
 
 ### Features
 - The web page now tells why there is no link with the stove: bridge not connected to the stove over USB (wrong port on the board, charge-only cable, stove off), or connected but the stove stays silent. `/api/state` reports the same under `usb` (`host_connected`, `rx_bytes`).
-- Web page header: the Open-Firenet version is shown next to the title, and a single badge gives the stove model, its firmware version and the link state (e.g. "DOMO v2.29 connected"). The badge turns grey when the stove is not connected.
+- Web page header: the Open Firenet version is shown next to the title, and a single badge gives the stove model, its firmware version and the link state (e.g. "DOMO v2.29 connected"). The badge turns grey when the stove is not connected.
 
 ### Fixes
 - Stoves on firmware 2.28 (e.g. LIVO): the link works again. v3.0.0 and v3.1.0 talked to these stoves in the wrong message format, so the stove never answered and showed UW29.

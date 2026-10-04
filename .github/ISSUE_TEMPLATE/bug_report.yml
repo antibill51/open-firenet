@@ -33,7 +33,7 @@ body:
   - type: input
     id: bridge_version
     attributes:
-      label: Open-Firenet firmware version
+      label: Open Firenet firmware version
       description: Shown next to the title on the bridge's web page, or `version` in /api/state. If you built a branch yourself, give its name.
       placeholder: e.g. 3.2.0
     validations:
@@ -72,4 +72,4 @@ body:
     id: more
     attributes:
       label: Anything else
-      description: Did the stove ever work with an original RIKA Firenet stick? Did it work with an earlier Open-Firenet version? Photos of the stove screen are welcome.
+      description: Did the stove ever work with an original RIKA Firenet stick? Did it work with an earlier Open Firenet version? Photos of the stove screen are welcome.

@@ -1,4 +1,4 @@
-// Parité g++ du cœur protocole Open-Firenet.
+// Parité g++ du cœur protocole Open Firenet.
 // Compile : g++ -std=c++17 firenet_protocol_test.cpp -o /tmp/ft && /tmp/ft
 #include "firenet_protocol.h"
 #include <cassert>
