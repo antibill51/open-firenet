@@ -66,7 +66,7 @@ body:
     attributes:
       label: Log
       description: |
-        On the bridge's page: CDC Logs tab, then download. Take it one to two minutes after switching the stove on, and drag the file here.
+        On the bridge's page: Diagnostics tab, then Download in the exchange log (on firmware 3.2.0 and older: CDC Logs tab). Take it one to two minutes after switching the stove on, and drag the file here.
         The log hides your Wi-Fi password.
   - type: textarea
     id: more
