@@ -26,8 +26,8 @@
 #include "firenet_link.h"
 #include "firenet_api.h"
 #include "firenet_mqtt.h"
-#include <WiFiClient.h>
-#include <lwip/sockets.h>
+#include <deque>
+#include "mqtt_client.h"   // esp-mqtt, Espressif's MQTT client shipped with the ESP32 core
 #include "web_ui.h"
 
 // Types used in function signatures are declared here, ahead of every function: the Arduino builder inserts its
@@ -35,27 +35,11 @@
 // Base settings sent to the stove by applyControlPairs().
 struct AppliedControls { long on, mode, stage, room; };
 
-// MQTT settings, socket and client (the logic is further down, in the MQTT section).
+// MQTT settings (the logic is further down, in the MQTT section).
 struct MqttSettings { bool enabled = false; String host; uint16_t port = 1883; String user, pass, base = "openfirenet"; };
 static MqttSettings g_mqttCfg;
-
-struct SocketTransport : firenet::MqttTransport {
-  WiFiClient client;
-  bool connected() override { return client.connected(); }
-  int read(uint8_t* buf, size_t n) override {
-    int a = client.available();
-    return a > 0 ? client.read(buf, min((size_t)a, n)) : 0;
-  }
-  size_t write(const uint8_t* buf, size_t n) override {
-    int fd = client.fd();
-    if (fd < 0) return 0;
-    int r = ::send(fd, buf, n, MSG_DONTWAIT);
-    return r < 0 ? 0 : (size_t)r;
-  }
-  void stop() override { client.stop(); }
-};
-static SocketTransport g_mqttSock;
-static firenet::MqttClient g_mqtt(g_mqttSock, [] { return (uint32_t)millis(); });
+static volatile bool g_mqttConnected = false;
+struct MqttCommand { std::string topic, payload; };
 
 // Avec CDCOnBoot=default (désactivé), le core ne démarre pas l'USB de lui-même :
 // on instancie le CDC et on fixe VID/PID AVANT USB.begin(). Serial = UART0 (debug).
@@ -395,7 +379,7 @@ static String jsonState() {
   // rx_bytes = bytes received from the stove since boot. Both stay false / 0 when the stove is plugged into the
   // board's UART/COM port, when the cable has no data wires, or when the stove is off.
   j += "\"usb\":{\"host_connected\":" + String((bool)USB ? "true" : "false") + ",\"rx_bytes\":" + String(m.rx_bytes) + "},";
-  j += "\"mqtt\":{\"enabled\":" + String(g_mqttCfg.enabled ? "true" : "false") + ",\"connected\":" + String(g_mqtt.connected() ? "true" : "false") + "},";
+  j += "\"mqtt\":{\"enabled\":" + String(g_mqttCfg.enabled ? "true" : "false") + ",\"connected\":" + String(g_mqttConnected ? "true" : "false") + "},";
   j += "\"frames_in\":" + String(m.frames_in) + ",";
   j += "\"frames_out\":" + String(m.frames_out) + ",";
   j += "\"revision\":" + String((long)m.revision) + ",";
@@ -829,39 +813,66 @@ static void handleApiControls() {
 //   <base>/<section>/<name>    the same values, one per topic (retained), e.g. <base>/sensors/room_temperature
 //   <base>/set                 command: JSON or "k=v;" text, as POST /api/controls
 //   <base>/set/<name>          command: one value, e.g. <base>/set/target_temperature 21.5
-// Nothing here may block the main loop, which also runs the stove link: the TCP connection (and the DNS lookup) is
-// made in a short-lived task, writes never wait (MSG_DONTWAIT) and a failed write drops the session.
-enum { MQTT_TCP_IDLE, MQTT_TCP_CONNECTING, MQTT_TCP_UP, MQTT_TCP_FAILED, MQTT_SESSION };
-static volatile int g_mqttPhase = MQTT_TCP_IDLE;
-static char g_mqttTaskHost[96];
-static uint16_t g_mqttTaskPort = 1883;
-static const uint32_t MQTT_RETRY_MIN_MS = 5000, MQTT_RETRY_MAX_MS = 300000;
-static uint32_t g_mqttRetryMs = MQTT_RETRY_MIN_MS, g_mqttLastTry = 0;
-static bool g_mqttTried = false, g_mqttTcpFailed = false, g_mqttReload = false;
+// The client is esp-mqtt. It runs in its own task (connection, reconnection every 10 s, keep-alive), so a broker
+// that is down or slow never holds the main loop, which also runs the stove link. The two sides meet in two places:
+// outgoing messages are queued (esp_mqtt_client_enqueue, sent by the client's task), and incoming commands are put
+// in g_mqttInbox by the client's task and applied by the main loop.
+static esp_mqtt_client_handle_t g_mqttClient = nullptr;
+static volatile bool g_mqttFresh = false;     // a session just opened: everything is published again
+static volatile int g_mqttError = 0;          // 0 none, -1 broker unreachable, -3 connection lost, > 0 refusal code
+static bool g_mqttReload = false;             // settings changed: restart the client with the new ones
+static std::string g_mqttBase;                // base topic of the running client
+static std::mutex g_mqttMx;
+static std::deque<MqttCommand> g_mqttInbox;
 static std::map<std::string, std::string> g_mqttSent;   // last value published per topic
 static String g_mqttLastState;
 static uint32_t g_mqttLastStateMs = 0;
 
-static void mqttConnectTask(void*) {
-  bool up = g_mqttSock.client.connect(g_mqttTaskHost, g_mqttTaskPort, 3000);
-  g_mqttPhase = up ? MQTT_TCP_UP : MQTT_TCP_FAILED;
-  vTaskDelete(nullptr);
+// Runs in the client's task: no access to the stove link from here.
+static void mqttEvent(void*, esp_event_base_t, int32_t id, void* data) {
+  static std::string rxTopic, rxData;
+  static bool rxRetained = false;
+  auto* e = (esp_mqtt_event_handle_t)data;
+  switch ((esp_mqtt_event_id_t)id) {
+    case MQTT_EVENT_CONNECTED:
+      esp_mqtt_client_publish(e->client, (g_mqttBase + "/availability").c_str(), "online", 0, 1, 1);
+      esp_mqtt_client_subscribe(e->client, (g_mqttBase + "/set").c_str(), 1);
+      esp_mqtt_client_subscribe(e->client, (g_mqttBase + "/set/#").c_str(), 1);
+      g_mqttError = 0; g_mqttFresh = true; g_mqttConnected = true;
+      break;
+    case MQTT_EVENT_DISCONNECTED:
+      if (g_mqttConnected) g_mqttError = -3;
+      g_mqttConnected = false;
+      break;
+    case MQTT_EVENT_ERROR:
+      g_mqttError = (e->error_handle && e->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED)
+                      ? (int)e->error_handle->connect_return_code : -1;
+      break;
+    case MQTT_EVENT_DATA: {
+      // A message larger than the client's buffer arrives in several events; the topic comes with the first one.
+      if (e->current_data_offset == 0) { rxTopic.assign(e->topic, e->topic_len); rxData.clear(); rxRetained = e->retain; }
+      if (e->total_data_len > 1024) break;                       // no command is that long
+      rxData.append(e->data, e->data_len);
+      if ((int)rxData.size() < e->total_data_len) break;
+      // A retained command would be replayed at every reconnection (e.g. switch the stove on again): ignored.
+      if (rxRetained) break;
+      std::lock_guard<std::mutex> lk(g_mqttMx);
+      if (g_mqttInbox.size() < 8) g_mqttInbox.push_back({rxTopic, rxData});
+      break;
+    }
+    default: break;
+  }
 }
 
-static std::string mqttTopic(const char* leaf) { return std::string(g_mqttCfg.base.c_str()) + "/" + leaf; }
-
-static void mqttOnMessage(const std::string& topic, const std::string& payload, bool retained) {
-  // A retained command would be replayed at every reconnection (e.g. switch the stove on again): ignored.
-  if (retained) { DBG.printf("[mqtt] retained command on %s ignored\n", topic.c_str()); return; }
-  const std::string set = mqttTopic("set");
+static void mqttApply(const MqttCommand& c) {
+  std::string name;
+  if (!firenet::mqtt::commandTopic(g_mqttBase, c.topic, name)) return;
   std::vector<std::pair<std::string, std::string>> pairs;
-  if (topic == set) {
-    if (payload.find('{') != std::string::npos) firenet::jsonPairs(payload, pairs); else firenet::textPairs(payload, pairs);
-  } else if (topic.compare(0, set.size() + 1, set + "/") == 0) {
-    pairs.push_back({topic.substr(set.size() + 1), payload});
-  }
-  if (pairs.empty() || firenet::parseControlCommands(pairs).empty()) {
-    DBG.printf("[mqtt] nothing to apply in %s\n", topic.c_str());
+  if (!name.empty()) pairs.push_back({name, c.payload});
+  else if (c.payload.find('{') != std::string::npos) firenet::jsonPairs(c.payload, pairs);
+  else firenet::textPairs(c.payload, pairs);
+  if (firenet::parseControlCommands(pairs).empty()) {
+    DBG.printf("[mqtt] nothing to apply in %s\n", c.topic.c_str());
     return;
   }
   if (!g_link->model().version_ack || g_link->model().controls_pos.empty()) {
@@ -869,7 +880,7 @@ static void mqttOnMessage(const std::string& topic, const std::string& payload, 
     return;
   }
   applyControlPairs(pairs);
-  DBG.printf("[mqtt] command applied from %s\n", topic.c_str());
+  DBG.printf("[mqtt] command applied from %s\n", c.topic.c_str());
 }
 
 static void mqttLoadSettings() {
@@ -882,44 +893,69 @@ static void mqttLoadSettings() {
   g_mqttCfg.base = prefs.getString("mq_base", "openfirenet");
   prefs.end();
   if (g_mqttCfg.base.isEmpty()) g_mqttCfg.base = "openfirenet";
-  uint8_t mac[6]; WiFi.macAddress(mac);
-  char id[32]; snprintf(id, sizeof id, "open-firenet-%02x%02x%02x", mac[3], mac[4], mac[5]);
-  g_mqtt.setClientId(id);
-  g_mqtt.setCredentials(g_mqttCfg.user.c_str(), g_mqttCfg.pass.c_str());
-  g_mqtt.setWill(mqttTopic("availability"), "offline", true);
-  g_mqtt.setKeepAlive(30);
 }
 
-static void mqttSetup() {
-  mqttLoadSettings();
-  g_mqtt.onMessage(mqttOnMessage);
-  g_mqtt.onConnect([] {
-    DBG.println("[mqtt] connected");
-    g_mqttRetryMs = MQTT_RETRY_MIN_MS;
-    g_mqttSent.clear(); g_mqttLastState = "";
-    g_mqtt.publish(mqttTopic("availability"), "online", true);
-    g_mqtt.subscribe(mqttTopic("set"));
-    g_mqtt.subscribe(mqttTopic("set/#"));
-  });
+static void mqttStart() {
+  uint8_t mac[6]; WiFi.macAddress(mac);
+  char id[32]; snprintf(id, sizeof id, "open-firenet-%02x%02x%02x", mac[3], mac[4], mac[5]);
+  g_mqttBase = g_mqttCfg.base.c_str();
+  const std::string will = g_mqttBase + "/availability";
+  esp_mqtt_client_config_t c = {};                           // every string is copied by esp_mqtt_client_init()
+  c.broker.address.hostname = g_mqttCfg.host.c_str();
+  c.broker.address.port = g_mqttCfg.port;
+  c.broker.address.transport = MQTT_TRANSPORT_OVER_TCP;
+  c.credentials.client_id = id;
+  if (!g_mqttCfg.user.isEmpty()) {
+    c.credentials.username = g_mqttCfg.user.c_str();
+    if (!g_mqttCfg.pass.isEmpty()) c.credentials.authentication.password = g_mqttCfg.pass.c_str();
+  }
+  c.session.last_will.topic = will.c_str();
+  c.session.last_will.msg = "offline";
+  c.session.last_will.qos = 1;
+  c.session.last_will.retain = 1;
+  c.session.keepalive = 30;
+  c.network.reconnect_timeout_ms = 10000;
+  c.network.timeout_ms = 3000;
+  c.buffer.size = 2048;                                      // the state JSON is about 1.5 kB
+  g_mqttError = 0; g_mqttConnected = false;
+  g_mqttClient = esp_mqtt_client_init(&c);
+  if (!g_mqttClient) { DBG.println("[mqtt] client init failed"); return; }
+  esp_mqtt_client_register_event(g_mqttClient, MQTT_EVENT_ANY, mqttEvent, nullptr);
+  esp_mqtt_client_start(g_mqttClient);
+  DBG.printf("[mqtt] client started, broker %s:%u\n", g_mqttCfg.host.c_str(), (unsigned)g_mqttCfg.port);
+}
+
+// Only called when the settings change. It waits for the client's task to end, which can take up to the network
+// timeout (3 s) if the task is in the middle of a connection attempt.
+static void mqttStop() {
+  if (!g_mqttClient) return;
+  if (g_mqttConnected) esp_mqtt_client_publish(g_mqttClient, (g_mqttBase + "/availability").c_str(), "offline", 0, 1, 1);
+  esp_mqtt_client_stop(g_mqttClient);
+  esp_mqtt_client_destroy(g_mqttClient);
+  g_mqttClient = nullptr; g_mqttConnected = false;
+  std::lock_guard<std::mutex> lk(g_mqttMx);
+  g_mqttInbox.clear();
 }
 
 static const char* mqttStatus() {
   if (!g_mqttCfg.enabled || g_mqttCfg.host.isEmpty()) return "disabled";
-  if (g_mqtt.connected()) return "connected";
+  if (g_mqttConnected) return "connected";
   if (WiFi.status() != WL_CONNECTED) return "waiting for Wi-Fi";
-  if (!g_mqttTried) return "connecting";
-  if (g_mqttTcpFailed) return "broker unreachable";
-  switch (g_mqtt.lastError()) {
-    case 4: case 5: return "refused: wrong user or password";
-    case 1: case 2: case 3: return "refused by the broker";
-    case -2: return "no answer from the broker";
+  switch (g_mqttError) {
+    case 0: return "connecting";
+    case -1: return "broker unreachable";
     case -3: return "connection lost";
-    default: return "connecting";
+    case 4: case 5: return "refused: wrong user or password";
+    default: return "refused by the broker";
   }
 }
 
-// Publishes what changed: the JSON state at most every 5 s (and at least every 60 s), then up to 25 single values per
-// call so a full refresh is spread over a few seconds instead of filling the socket at once.
+static bool mqttQueue(const std::string& leaf, const char* data, size_t len) {
+  return esp_mqtt_client_enqueue(g_mqttClient, (g_mqttBase + "/" + leaf).c_str(), data, (int)len, 0, 1, true) >= 0;
+}
+
+// Queues what changed: the JSON state at most every 5 s (and at least every 60 s), then up to 25 single values per
+// call, so a full refresh is spread over a few seconds.
 static void mqttPublish() {
   const auto& m = g_link->model();
   bool linked = m.version_ack && !m.sensors_pos.empty();
@@ -931,7 +967,7 @@ static void mqttPublish() {
   uint32_t now = millis();
   bool changed = state != g_mqttLastState;
   if ((changed && (g_mqttLastState.isEmpty() || now - g_mqttLastStateMs >= 5000)) || now - g_mqttLastStateMs >= 60000) {
-    if (!g_mqtt.publish(mqttTopic("state"), state.c_str(), true)) return;
+    if (!mqttQueue("state", state.c_str(), state.length())) return;
     g_mqttLastState = state; g_mqttLastStateMs = now;
   }
   std::vector<std::pair<std::string, std::string>> values;
@@ -940,52 +976,35 @@ static void mqttPublish() {
   for (const auto& v : values) {
     auto it = g_mqttSent.find(v.first);
     if (it != g_mqttSent.end() && it->second == v.second) continue;
-    if (!g_mqtt.publish(mqttTopic(v.first.c_str()), v.second, true)) return;
+    if (!mqttQueue(v.first, v.second.data(), v.second.size())) return;
     g_mqttSent[v.first] = v.second;
     if (--budget == 0) break;
   }
 }
 
 static void mqttLoop() {
-  if (g_mqttPhase == MQTT_TCP_CONNECTING) return;            // the socket belongs to the connection task
-  if (g_mqttReload) {                                        // settings changed: start over with the new ones
+  if (g_mqttReload) {
     g_mqttReload = false;
-    if (g_mqtt.connected()) g_mqtt.publish(mqttTopic("availability"), "offline", true);
-    g_mqtt.disconnect(); g_mqttSock.stop();
+    mqttStop();
     mqttLoadSettings();
-    g_mqttPhase = MQTT_TCP_IDLE; g_mqttTried = false; g_mqttRetryMs = MQTT_RETRY_MIN_MS; g_mqttLastTry = 0;
   }
-  bool wanted = g_mqttCfg.enabled && !g_mqttCfg.host.isEmpty() && !g_isApMode && WiFi.status() == WL_CONNECTED;
-  switch (g_mqttPhase) {
-    case MQTT_TCP_IDLE:
-      if (!wanted || (g_mqttTried && millis() - g_mqttLastTry < g_mqttRetryMs)) return;
-      strlcpy(g_mqttTaskHost, g_mqttCfg.host.c_str(), sizeof g_mqttTaskHost);
-      g_mqttTaskPort = g_mqttCfg.port;
-      g_mqttPhase = MQTT_TCP_CONNECTING;
-      if (xTaskCreate(mqttConnectTask, "mqtt-connect", 4096, nullptr, 1, nullptr) != pdPASS) g_mqttPhase = MQTT_TCP_FAILED;
-      return;
-    case MQTT_TCP_FAILED:
-      g_mqttSock.stop(); g_mqttTcpFailed = true;
-      break;
-    case MQTT_TCP_UP:
-      g_mqttTcpFailed = false;
-      if (!wanted) { g_mqttSock.stop(); g_mqttPhase = MQTT_TCP_IDLE; return; }
-      if (g_mqtt.begin()) { g_mqttPhase = MQTT_SESSION; return; }
-      break;
-    case MQTT_SESSION: {
-      if (!wanted) { g_mqtt.disconnect(); g_mqttPhase = MQTT_TCP_IDLE; return; }
-      if (g_mqtt.loop()) {
-        static uint32_t lastPublish = 0;
-        if (g_mqtt.connected() && millis() - lastPublish >= 1000) { lastPublish = millis(); mqttPublish(); }
-        return;
-      }
-      DBG.printf("[mqtt] session ended (%d)\n", g_mqtt.lastError());
-      break;
+  if (!g_mqttClient) {
+    // Started once Wi-Fi is up; from then on the client reconnects by itself.
+    if (g_mqttCfg.enabled && !g_mqttCfg.host.isEmpty() && !g_isApMode && WiFi.status() == WL_CONNECTED) mqttStart();
+    return;
+  }
+  for (;;) {
+    MqttCommand c;
+    {
+      std::lock_guard<std::mutex> lk(g_mqttMx);
+      if (g_mqttInbox.empty()) break;
+      c = g_mqttInbox.front(); g_mqttInbox.pop_front();
     }
+    mqttApply(c);
   }
-  // A failed attempt or a lost session: retry later, doubling the wait up to 5 minutes.
-  g_mqttPhase = MQTT_TCP_IDLE; g_mqttTried = true; g_mqttLastTry = millis();
-  g_mqttRetryMs = min(g_mqttRetryMs * 2, MQTT_RETRY_MAX_MS);
+  if (g_mqttFresh) { g_mqttFresh = false; g_mqttSent.clear(); g_mqttLastState = ""; DBG.println("[mqtt] connected"); }
+  static uint32_t lastPublish = 0;
+  if (g_mqttConnected && millis() - lastPublish >= 1000) { lastPublish = millis(); mqttPublish(); }
 }
 
 static String jsonEscape(const String& in) {
@@ -1033,7 +1052,7 @@ static void handleMqtt() {
   }
   String j = "{\"enabled\":" + String(c.enabled ? "true" : "false") + ",\"host\":\"" + jsonEscape(c.host) + "\",\"port\":" + String(c.port)
     + ",\"user\":\"" + jsonEscape(c.user) + "\",\"password_set\":" + String(c.pass.isEmpty() ? "false" : "true")
-    + ",\"base_topic\":\"" + jsonEscape(c.base) + "\",\"connected\":" + String(!g_mqttReload && g_mqtt.connected() ? "true" : "false")
+    + ",\"base_topic\":\"" + jsonEscape(c.base) + "\",\"connected\":" + String(!g_mqttReload && g_mqttConnected ? "true" : "false")
     + ",\"status\":\"" + String(g_mqttReload ? (c.enabled && !c.host.isEmpty() ? "connecting" : "disabled") : mqttStatus()) + "\"}";
   web.send(200, "application/json", j);
 }
@@ -1241,7 +1260,7 @@ void setup() {
   // Routes compatibilité open-firenet & Home Assistant
   web.on("/log", handleLog);
 
-  mqttSetup();
+  mqttLoadSettings();
   web.begin();
   DBG.println("[web] démarré (avec portail captif + compatibilité open-firenet)");
 }

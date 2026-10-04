@@ -492,8 +492,8 @@ Optional and off by default. The bridge can publish the stove state to an MQTT b
 Notes:
 - Commands must not be published with the retain flag: a retained command is ignored, as the broker would replay it at every reconnection.
 - Commands are ignored while the stove is not linked.
-- QoS 0, MQTT 3.1.1, no TLS: meant for a broker on your local network.
-- If the broker is unreachable the bridge retries on its own, after 10 s at first and then less and less often (up to every 5 minutes). The link with the stove is not affected.
+- MQTT 3.1.1 over plain TCP (no TLS): meant for a broker on your local network. Values are published with QoS 0; commands are subscribed with QoS 1.
+- If the broker is unreachable the bridge retries every 10 s on its own. The link with the stove is not affected.
 
 `GET /api/mqtt` returns the settings (never the password) and the connection status:
 
