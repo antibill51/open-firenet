@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Troubleshooting guide
+    url: https://openfirenet.github.io/troubleshooting.html
+    about: The most common problems (wrong USB port, UW29, page not reachable, failed update) and what to check first.
+  - name: Home Assistant integration
+    url: https://github.com/openfirenet/open-firenet-ha/issues
+    about: Problems with the entities or the setup in Home Assistant go to the integration's repository.
+  - name: Installer
+    url: https://github.com/openfirenet/open-firenet-installer/issues
+    about: Problems with the desktop installer (flashing, Wi-Fi setup, wireless update).

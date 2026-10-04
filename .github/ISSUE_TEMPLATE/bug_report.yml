@@ -1,0 +1,75 @@
+name: Problem with the bridge or the stove link
+description: The stove does not connect, values are wrong, a command is not applied, the page does not work...
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report. The more of these fields you fill in, the fewer questions we need to ask back.
+        Before opening an issue, please have a look at the [troubleshooting page](https://openfirenet.github.io/troubleshooting.html).
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Quick checks
+      options:
+        - label: The bridge runs the latest firmware version (shown next to the title on its web page).
+        - label: The stove is plugged into the board's native USB port (labelled "USB" or "USB OTG", not "UART" or "COM"), with a data cable.
+        - label: I switched the stove off and on at the mains after plugging in or flashing the bridge.
+  - type: input
+    id: stove_model
+    attributes:
+      label: Stove model
+      placeholder: e.g. DOMO, INDUO II, SONO, LIVO
+    validations:
+      required: true
+  - type: input
+    id: stove_firmware
+    attributes:
+      label: Stove firmware version
+      description: Info menu on the stove screen (mainboard software).
+      placeholder: e.g. 2.27, 2.28, 2.29
+    validations:
+      required: true
+  - type: input
+    id: bridge_version
+    attributes:
+      label: Open-Firenet firmware version
+      description: Shown next to the title on the bridge's web page, or `version` in /api/state. If you built a branch yourself, give its name.
+      placeholder: e.g. 3.2.0
+    validations:
+      required: true
+  - type: input
+    id: board
+    attributes:
+      label: Board
+      placeholder: e.g. ESP32-S3-DevKitC-1, M5Stamp S3, XIAO ESP32-S3
+  - type: textarea
+    id: what_happens
+    attributes:
+      label: What happens
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: stove_screen
+    attributes:
+      label: What the stove screen shows
+      description: Any message or code (for example UW29), and on which screen.
+  - type: textarea
+    id: state
+    attributes:
+      label: Output of /api/state
+      description: Open `http://open-firenet.local/api/state` (or the bridge's IP address) and paste the whole text. It contains your Wi-Fi name and the bridge's addresses; remove them if you prefer.
+      render: json
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: |
+        On the bridge's page: CDC Logs tab, then download. Take it one to two minutes after switching the stove on, and drag the file here.
+        The log hides your Wi-Fi password.
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Did the stove ever work with an original RIKA Firenet stick? Did it work with an earlier Open-Firenet version? Photos of the stove screen are welcome.
