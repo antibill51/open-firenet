@@ -1,5 +1,10 @@
 # Changelog
 
+## Non publié
+
+### Fixes
+- Web page: the emblem next to the title and the browser tab icon are now the actual Open Firenet logo, instead of a simplified drawing.
+
 ## v3.3.1 (2026-10-05)
 
 ### Fixes
