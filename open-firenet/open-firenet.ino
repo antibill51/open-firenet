@@ -812,7 +812,7 @@ static void handleApiControls() {
 //   <base>/state               JSON: the "device", "stove", "sensors" and "controls" objects of /api/state (retained)
 //   <base>/<section>/<name>    the same values, one per topic (retained), e.g. <base>/sensors/room_temperature
 //   <base>/set                 command: JSON or "k=v;" text, as POST /api/controls
-//   <base>/set/<name>          command: one value, e.g. <base>/set/target_temperature 21.5
+//   <base>/set/<name>          command: one value, e.g. <base>/set/target_temperature 21
 // The client is esp-mqtt. It runs in its own task (connection, reconnection every 10 s, keep-alive), so a broker
 // that is down or slow never holds the main loop, which also runs the stove link. The two sides meet in two places:
 // outgoing messages are put in g_mqttOutbox and sent by a small publisher task, and incoming commands are put in

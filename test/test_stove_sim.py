@@ -369,13 +369,13 @@ def run_induo_simulation_tests():
     assert_test("heatTimeMon1 en position DOMO 7 (record 2.27 6)", "cp7=360 " in state_ctl)
 
     # Une commande envoie GET_CONTROLS=1 avec 5 noms (liste remplacée), la consigne est appliquée et non re-postée
-    tx_set, _ = bridge.send_cmd("SETONE roomTarget=225")
+    tx_set, _ = bridge.send_cmd("SETONE roomTarget=230")
     for _ in range(6):
         tx_set += bridge.tick(600)[0]
     set_replies = []
     for t in tx_set:
         set_replies += stove.process_dongle_tx(t)
-    assert_test("La commande est appliquée par le poêle (roomTarget=225)", stove.ctrl_room == 225)
+    assert_test("La commande est appliquée par le poêle (roomTarget=230)", stove.ctrl_room == 230)
     assert_test("Le poêle ne re-poste pas la valeur imposée", not any(r.startswith("POST_CONTROLS") for r in set_replies))
     tx_re, _ = bridge.send_cmd("POLLCTRL")
     for _ in range(5):

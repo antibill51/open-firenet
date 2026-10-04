@@ -498,6 +498,7 @@ public:
     if (roomTarget < 50) roomTarget *= 10;
     if (roomTarget < 140) roomTarget = 140;
     if (roomTarget > 280) roomTarget = 280;
+    roomTarget = ((roomTarget + 5) / 10) * 10;   // the stove sets its target in whole degrees (as its screen does)
 
     if (fan1On < 0) fan1On = 0;
     if (fan1On > 1) fan1On = 1;

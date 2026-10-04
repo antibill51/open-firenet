@@ -97,6 +97,15 @@ int main(){
   // applyControls immediately triggers GET_CONTROLS=1 + GET_REVISION + 2x TRANSFER_COMPLETED
   {
     std::string sent; uint32_t c3=0;
+    // A target with a half degree is rounded to the whole degree (the stove works in steps of 1 °C).
+    for (auto tc : std::vector<std::pair<long, const char*>>{{185, "roomTarget=190;"}, {184, "roomTarget=180;"}, {220, "roomTarget=220;"}, {215, "roomTarget=220;"}}) {
+      std::string out; uint32_t clk = 0;
+      DongleLink lr([&](const uint8_t* d, size_t n) { out.append((const char*)d, n); }, [&]() { return clk; });
+      for (char c : std::string("GET_CDCDEVICE_VERSION_FINISHED")) lr.onByte(c);
+      lr.applyControls({{"onOff", 0}, {"mode", 2}, {"targetStage", 70}, {"roomTarget", tc.first}});
+      for (int i = 0; i < 8; i++) { clk += DongleLink::TX_GAP_MS; lr.poll(); }
+      CH((std::string("target rounded: ") + tc.second).c_str(), out.find(tc.second) != std::string::npos);
+    }
     DongleLink l3([&](const uint8_t*d,size_t n){ sent.append((const char*)d,n); },
                   [&](){ return c3; });
     std::string ack = "GET_CDCDEVICE_VERSION_FINISHED";
