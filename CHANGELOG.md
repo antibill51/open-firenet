@@ -3,7 +3,7 @@
 ## Non publié
 
 ### Fixes
-- Web page: the emblem next to the title and the browser tab icon are now the actual Open Firenet logo, instead of a simplified drawing.
+- Web page: the emblem next to the title and the browser tab icon are now the actual Open Firenet logo, instead of a simplified drawing, and "Firenet" in the title carries the orange gradient of the logo.
 
 ## v3.3.1 (2026-10-05)
 
