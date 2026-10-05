@@ -867,8 +867,11 @@ static void mqttEvent(void*, esp_event_base_t, int32_t id, void* data) {
       if (e->error_handle && e->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) {
         g_mqttError = (int)e->error_handle->connect_return_code;
       } else if (g_mqttCfg.tls && e->error_handle &&
-                 (e->error_handle->esp_tls_cert_verify_flags != 0 || e->error_handle->esp_tls_stack_err == -0x2700)) {
-        g_mqttError = -5;                                        // mbedTLS: certificate verification failed
+                 (e->error_handle->esp_tls_cert_verify_flags != 0 || e->error_handle->esp_tls_stack_err == -0x2700 ||
+                  e->error_handle->esp_tls_stack_err == -0x3000)) {
+        // mbedTLS: certificate verification failed (-0x2700), or refused by the check against the public
+        // authorities (-0x3000, seen on a DOMO with a broker signed by an authority of its own and none given)
+        g_mqttError = -5;
       } else if (g_mqttCfg.tls && e->error_handle && e->error_handle->esp_tls_stack_err != 0) {
         g_mqttError = -6;                                        // the TLS handshake failed for another reason
       } else {
@@ -984,7 +987,9 @@ static void mqttStart() {
   c.session.last_will.qos = 1;
   c.session.last_will.retain = 1;
   c.session.keepalive = 30;
-  c.network.reconnect_timeout_ms = 10000;
+  // A TLS connection attempt takes about 30 kB of memory for a few seconds (free memory seen as low as 12 kB on a
+  // DOMO while a refused broker was retried every 10 s): the attempts are spaced out.
+  c.network.reconnect_timeout_ms = g_mqttCfg.tls ? 30000 : 10000;
   c.network.timeout_ms = g_mqttCfg.tls ? 6000 : 3000;       // a TLS handshake takes a few seconds on this chip
   c.buffer.size = 2048;                                      // the state JSON is about 1.5 kB
   g_mqttError = 0; g_mqttConnected = false;

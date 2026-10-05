@@ -510,7 +510,7 @@ Notes:
 - Commands must not be published with the retain flag: a retained command is ignored, as the broker would replay it at every reconnection.
 - Commands are ignored while the stove is not linked.
 - MQTT 3.1.1, over plain TCP or over TLS (see below). Values are published with QoS 0; commands are subscribed with QoS 1.
-- If the broker is unreachable the bridge retries every 10 s on its own. The link with the stove is not affected.
+- If the broker is unreachable the bridge retries on its own, every 10 s (every 30 s with TLS). The link with the stove is not affected.
 
 ### Encrypted connection (TLS)
 
@@ -518,6 +518,8 @@ Tick **Encrypted connection (TLS)** in the MQTT card for a broker that listens w
 
 - **Without anything else**, the certificate must be signed by a public authority, for the name you entered as broker address: this fits a hosted broker, or a home broker with a Let's Encrypt certificate.
 - **With the certificate of your own authority** pasted in the field below (PEM text, starting with `-----BEGIN CERTIFICATE-----`), the broker's certificate must be signed by that authority. This fits a home broker with a self-made certificate. The name in the certificate is then not checked, as such a broker is usually reached by its IP address.
+
+Encryption is demanding for this small chip: it takes about 50 kB of its memory while connected, and more for a few seconds at each connection attempt, which are therefore made every 30 seconds instead of every 10. On a broker of your local network, plain MQTT remains the simplest choice; use TLS when the broker requires it or is outside your network.
 
 The status says "Certificate not trusted" when that check fails, and "Secure connection failed" when the TLS dialogue fails for another reason (for example TLS ticked on the plain port).
 
