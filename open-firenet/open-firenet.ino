@@ -28,6 +28,7 @@
 #include "firenet_mqtt.h"
 #include <deque>
 #include "mqtt_client.h"   // esp-mqtt, Espressif's MQTT client shipped with the ESP32 core
+#include "esp_crt_bundle.h" // public certificate authorities, to verify a broker reached over TLS
 #include "web_ui.h"
 
 // Types used in function signatures are declared here, ahead of every function: the Arduino builder inserts its
@@ -36,7 +37,11 @@
 struct AppliedControls { long on, mode, stage, room; };
 
 // MQTT settings (the logic is further down, in the MQTT section).
-struct MqttSettings { bool enabled = false; String host; uint16_t port = 1883; String user, pass, base = "openfirenet"; bool discovery = false; };
+struct MqttSettings {
+  bool enabled = false; String host; uint16_t port = 1883; String user, pass, base = "openfirenet"; bool discovery = false;
+  bool tls = false;    // encrypted connection (MQTT over TLS, usually port 8883)
+  String ca;           // optional: certificate (PEM) of the authority that signed the broker's certificate
+};
 static MqttSettings g_mqttCfg;
 static volatile bool g_mqttConnected = false;
 struct MqttCommand { std::string topic, payload; };
@@ -825,6 +830,7 @@ static volatile bool g_mqttFresh = false;     // a session just opened: everythi
 static volatile int g_mqttError = 0;          // 0 none, -1 broker unreachable, -3 connection lost, > 0 refusal code
 static bool g_mqttReload = false;             // settings changed: restart the client with the new ones
 static std::string g_mqttBase;                // base topic of the running client
+static std::string g_mqttCa;                  // authority certificate of the running client (TLS)
 static std::mutex g_mqttMx;
 static std::deque<MqttCommand> g_mqttInbox;
 static std::deque<std::pair<std::string, std::string>> g_mqttOutbox;   // topic, payload (all retained, QoS 0)
@@ -858,8 +864,16 @@ static void mqttEvent(void*, esp_event_base_t, int32_t id, void* data) {
       g_mqttConnected = false;
       break;
     case MQTT_EVENT_ERROR:
-      g_mqttError = (e->error_handle && e->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED)
-                      ? (int)e->error_handle->connect_return_code : -1;
+      if (e->error_handle && e->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) {
+        g_mqttError = (int)e->error_handle->connect_return_code;
+      } else if (g_mqttCfg.tls && e->error_handle &&
+                 (e->error_handle->esp_tls_cert_verify_flags != 0 || e->error_handle->esp_tls_stack_err == -0x2700)) {
+        g_mqttError = -5;                                        // mbedTLS: certificate verification failed
+      } else if (g_mqttCfg.tls && e->error_handle && e->error_handle->esp_tls_stack_err != 0) {
+        g_mqttError = -6;                                        // the TLS handshake failed for another reason
+      } else {
+        g_mqttError = -1;
+      }
       break;
     case MQTT_EVENT_DATA: {
       // A message larger than the client's buffer arrives in several events; the topic comes with the first one.
@@ -930,6 +944,8 @@ static void mqttLoadSettings() {
   g_mqttCfg.pass = prefs.getString("mq_pass", "");
   g_mqttCfg.base = prefs.getString("mq_base", "openfirenet");
   g_mqttCfg.discovery = prefs.getBool("mq_disc", false);
+  g_mqttCfg.tls = prefs.getBool("mq_tls", false);
+  g_mqttCfg.ca = prefs.getString("mq_ca", "");
   prefs.end();
   if (g_mqttCfg.base.isEmpty()) g_mqttCfg.base = "openfirenet";
 }
@@ -943,6 +959,21 @@ static void mqttStart() {
   c.broker.address.hostname = g_mqttCfg.host.c_str();
   c.broker.address.port = g_mqttCfg.port;
   c.broker.address.transport = MQTT_TRANSPORT_OVER_TCP;
+  if (g_mqttCfg.tls) {
+    c.broker.address.transport = MQTT_TRANSPORT_OVER_SSL;
+    if (g_mqttCfg.ca.isEmpty()) {
+      // No certificate given: the broker must present one signed by a public authority, for the name it is
+      // reached by (a hosted broker, or a home broker with a Let's Encrypt certificate).
+      c.broker.verification.crt_bundle_attach = esp_crt_bundle_attach;
+    } else {
+      // A home broker with its own authority: its certificate must be signed by the one given here. The name is
+      // not checked, as such a broker is usually reached by its IP address, which its certificate does not carry.
+      g_mqttCa = g_mqttCfg.ca.c_str();                       // kept alive: the client does not copy it
+      c.broker.verification.certificate = g_mqttCa.c_str();
+      c.broker.verification.skip_cert_common_name_check = true;
+    }
+    c.task.stack_size = 8192;                                // the TLS handshake runs in the client's task
+  }
   c.credentials.client_id = id;
   if (!g_mqttCfg.user.isEmpty()) {
     c.credentials.username = g_mqttCfg.user.c_str();
@@ -954,7 +985,7 @@ static void mqttStart() {
   c.session.last_will.retain = 1;
   c.session.keepalive = 30;
   c.network.reconnect_timeout_ms = 10000;
-  c.network.timeout_ms = 3000;
+  c.network.timeout_ms = g_mqttCfg.tls ? 6000 : 3000;       // a TLS handshake takes a few seconds on this chip
   c.buffer.size = 2048;                                      // the state JSON is about 1.5 kB
   g_mqttError = 0; g_mqttConnected = false;
   g_mqttClient = esp_mqtt_client_init(&c);
@@ -988,6 +1019,8 @@ static const char* mqttStatus() {
     case 0: return "connecting";
     case -1: return "broker unreachable";
     case -3: return "connection lost";
+    case -5: return "certificate not trusted";
+    case -6: return "secure connection failed";
     case 4: case 5: return "refused: wrong user or password";
     default: return "refused by the broker";
   }
@@ -1102,7 +1135,7 @@ static String jsonEscape(const String& in) {
 }
 
 // GET /api/mqtt: settings (the password is never returned) and connection status.
-// POST /api/mqtt: enabled, host, port, user, password, base_topic, discovery (JSON or form). A field left out keeps its value.
+// POST /api/mqtt: enabled, host, port, user, password, base_topic, discovery, tls, ca_certificate (JSON or form). A field left out keeps its value.
 static void handleMqtt() {
   sendCors();
   if (web.method() == HTTP_OPTIONS) { web.send(204); return; }
@@ -1110,7 +1143,19 @@ static void handleMqtt() {
     std::vector<std::pair<std::string, std::string>> kv;
     firenet::jsonPairs(web.hasArg("plain") ? web.arg("plain").c_str() : "", kv);
     for (int i = 0; i < web.args(); i++) if (web.argName(i) != "plain") kv.push_back({web.argName(i).c_str(), web.arg(i).c_str()});
+    // The certificate is checked first: nothing is saved when it is refused.
+    bool hasCa = false; String pem;
+    for (const auto& p : kv) if (p.first == "ca_certificate") {
+      // JSON carries the line breaks of the PEM text as "\n"; an empty value erases the certificate.
+      hasCa = true; pem = p.second.c_str();
+      pem.replace("\\n", "\n"); pem.replace("\\r", ""); pem.replace("\r", ""); pem.trim();
+    }
+    if (hasCa && !pem.isEmpty() && !(pem.startsWith("-----BEGIN CERTIFICATE-----") && pem.endsWith("-----END CERTIFICATE-----") && pem.length() < 3800)) {
+      web.send(400, "application/json", "{\"ok\":false,\"error\":\"ca_certificate is not a PEM certificate (or is longer than 3800 characters)\"}");
+      return;
+    }
     prefs.begin("firenet", false);
+    if (hasCa) prefs.putString("mq_ca", pem);
     for (const auto& p : kv) {
       String v = p.second.c_str(); v.trim();
       if (p.first == "enabled") prefs.putBool("mq_on", v == "true" || v == "1" || v == "on");
@@ -1119,6 +1164,7 @@ static void handleMqtt() {
       else if (p.first == "user") prefs.putString("mq_user", v.substring(0, 64));
       else if (p.first == "password") prefs.putString("mq_pass", String(p.second.c_str()).substring(0, 64));
       else if (p.first == "discovery") prefs.putBool("mq_disc", v == "true" || v == "1" || v == "on");
+      else if (p.first == "tls") prefs.putBool("mq_tls", v == "true" || v == "1" || v == "on");
       else if (p.first == "base_topic") {
         while (v.endsWith("/")) v.remove(v.length() - 1);
         if (v.indexOf('#') < 0 && v.indexOf('+') < 0) prefs.putString("mq_base", v.isEmpty() ? String("openfirenet") : v.substring(0, 64));
@@ -1134,11 +1180,13 @@ static void handleMqtt() {
     c.enabled = prefs.getBool("mq_on", false); c.host = prefs.getString("mq_host", ""); c.port = prefs.getUShort("mq_port", 1883);
     c.user = prefs.getString("mq_user", ""); c.pass = prefs.getString("mq_pass", ""); c.base = prefs.getString("mq_base", "openfirenet");
     c.discovery = prefs.getBool("mq_disc", false);
+    c.tls = prefs.getBool("mq_tls", false); c.ca = prefs.getString("mq_ca", "");
     prefs.end();
   }
   String j = "{\"enabled\":" + String(c.enabled ? "true" : "false") + ",\"host\":\"" + jsonEscape(c.host) + "\",\"port\":" + String(c.port)
     + ",\"user\":\"" + jsonEscape(c.user) + "\",\"password_set\":" + String(c.pass.isEmpty() ? "false" : "true")
-    + ",\"base_topic\":\"" + jsonEscape(c.base) + "\",\"discovery\":" + String(c.discovery ? "true" : "false") + ",\"connected\":" + String(!g_mqttReload && g_mqttConnected ? "true" : "false")
+    + ",\"base_topic\":\"" + jsonEscape(c.base) + "\",\"discovery\":" + String(c.discovery ? "true" : "false")
+    + ",\"tls\":" + String(c.tls ? "true" : "false") + ",\"ca_set\":" + String(c.ca.isEmpty() ? "false" : "true") + ",\"connected\":" + String(!g_mqttReload && g_mqttConnected ? "true" : "false")
     + ",\"status\":\"" + String(g_mqttReload ? (c.enabled && !c.host.isEmpty() ? "connecting" : "disabled") : mqttStatus()) + "\"}";
   web.send(200, "application/json", j);
 }

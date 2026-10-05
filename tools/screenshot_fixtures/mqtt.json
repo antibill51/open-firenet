@@ -6,6 +6,8 @@
  "password_set": true,
  "base_topic": "openfirenet",
  "discovery": false,
+ "tls": false,
+ "ca_set": false,
  "connected": true,
  "status": "connected"
 }

@@ -1,5 +1,10 @@
 # Changelog
 
+## Non publié
+
+### Features
+- MQTT: optional encrypted connection (TLS). The broker's certificate is checked against the public authorities, or against your own authority if you paste its certificate, for a home broker with a self-made certificate. (#54)
+
 ## v3.4.0 (2026-10-06)
 
 ### Features

@@ -1055,6 +1055,12 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
           <input class="input-text" id="mqttBase" placeholder="openfirenet" autocomplete="off"></label>
       </div>
       <label style="display:flex;align-items:flex-start;gap:8px;font-size:0.9rem">
+        <input type="checkbox" id="mqttTls" style="margin-top:3px"> <span><span id="lblMqttTls"></span><br><small id="lblMqttTlsHelp" style="color:var(--text-dim)"></small></span>
+      </label>
+      <label id="mqttCaBox" style="display:none;flex-direction:column;gap:4px;font-size:0.8rem;color:var(--text-dim)"><span id="lblMqttCa"></span>
+        <textarea class="input-text" id="mqttCa" rows="4" spellcheck="false" autocomplete="off" style="font-family:monospace;font-size:0.75rem;resize:vertical"></textarea>
+        <a href="#" id="mqttCaRemove" style="display:none;font-size:0.8rem;color:var(--amber)" onclick="removeMqttCa(); return false;"></a></label>
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:0.9rem">
         <input type="checkbox" id="mqttDiscovery" style="margin-top:3px"> <span><span id="lblMqttDiscovery"></span><br><small id="lblMqttDiscoveryHelp" style="color:var(--text-dim)"></small></span>
       </label>
       <div style="display:flex;justify-content:flex-end">
@@ -1257,6 +1263,12 @@ const I18N = {
     mqttDesc: "Publie l'état du poêle sur un broker MQTT et reçoit des commandes, pour Jeedom, openHAB, Node-RED, Domoticz… Facultatif.",
     mqttEnabled: "Activer MQTT",
     mqttDiscovery: "Découverte Home Assistant",
+    mqttTls: "Connexion chiffrée (TLS)",
+    mqttTlsHelp: "Pour un broker qui écoute en TLS, en général sur le port 8883. Son certificat doit être signé par une autorité publique, ou par la vôtre si vous collez son certificat ci-dessous.",
+    mqttCa: "Certificat de votre autorité (PEM), facultatif",
+    mqttCaKeep: "Enregistré. Laissez vide pour le conserver, ou collez-en un autre.",
+    mqttCaPlaceholder: "-----BEGIN CERTIFICATE-----",
+    mqttCaRemove: "Retirer le certificat enregistré",
     mqttDiscoveryHelp: "Le poêle apparaît tout seul dans Home Assistant (intégration MQTT). À laisser décoché si vous utilisez déjà l'intégration Open Firenet : vous auriez le poêle en double.",
     mqttHost: "Adresse du broker",
     mqttPort: "Port",
@@ -1268,7 +1280,7 @@ const I18N = {
     mqttSaving: "Enregistrement…",
     mqttSaved: "Enregistré ✓",
     mqttSaveFailed: "Non enregistré",
-    mqttStatus: { "disabled": "Désactivé", "connected": "Connecté", "connecting": "Connexion…", "waiting for Wi-Fi": "En attente du Wi-Fi", "broker unreachable": "Broker injoignable", "refused: wrong user or password": "Refusé : utilisateur ou mot de passe incorrect", "refused by the broker": "Refusé par le broker", "no answer from the broker": "Le broker ne répond pas", "connection lost": "Connexion perdue" },
+    mqttStatus: { "disabled": "Désactivé", "connected": "Connecté", "connecting": "Connexion…", "waiting for Wi-Fi": "En attente du Wi-Fi", "broker unreachable": "Broker injoignable", "refused: wrong user or password": "Refusé : utilisateur ou mot de passe incorrect", "refused by the broker": "Refusé par le broker", "no answer from the broker": "Le broker ne répond pas", "connection lost": "Connexion perdue", "certificate not trusted": "Certificat non reconnu", "secure connection failed": "Échec de la connexion chiffrée" },
     netModePrefix: "Mode : ",
     netRssiPrefix: "Signal RSSI : ",
     joinWifi: "Rejoindre un réseau WiFi (2.4 GHz) :",
@@ -1481,6 +1493,12 @@ const I18N = {
     mqttDesc: "Publishes the stove state to an MQTT broker and accepts commands, for Jeedom, openHAB, Node-RED, Domoticz… Optional.",
     mqttEnabled: "Enable MQTT",
     mqttDiscovery: "Home Assistant discovery",
+    mqttTls: "Encrypted connection (TLS)",
+    mqttTlsHelp: "For a broker that listens with TLS, usually on port 8883. Its certificate must be signed by a public authority, or by your own if you paste its certificate below.",
+    mqttCa: "Certificate of your authority (PEM), optional",
+    mqttCaKeep: "Saved. Leave empty to keep it, or paste another one.",
+    mqttCaPlaceholder: "-----BEGIN CERTIFICATE-----",
+    mqttCaRemove: "Remove the saved certificate",
     mqttDiscoveryHelp: "The stove appears by itself in Home Assistant (MQTT integration). Leave it off if you already use the Open Firenet integration: you would get the stove twice.",
     mqttHost: "Broker address",
     mqttPort: "Port",
@@ -1492,7 +1510,7 @@ const I18N = {
     mqttSaving: "Saving…",
     mqttSaved: "Saved ✓",
     mqttSaveFailed: "Not saved",
-    mqttStatus: { "disabled": "Disabled", "connected": "Connected", "connecting": "Connecting…", "waiting for Wi-Fi": "Waiting for Wi-Fi", "broker unreachable": "Broker unreachable", "refused: wrong user or password": "Refused: wrong user or password", "refused by the broker": "Refused by the broker", "no answer from the broker": "No answer from the broker", "connection lost": "Connection lost" },
+    mqttStatus: { "disabled": "Disabled", "connected": "Connected", "connecting": "Connecting…", "waiting for Wi-Fi": "Waiting for Wi-Fi", "broker unreachable": "Broker unreachable", "refused: wrong user or password": "Refused: wrong user or password", "refused by the broker": "Refused by the broker", "no answer from the broker": "No answer from the broker", "connection lost": "Connection lost", "certificate not trusted": "Certificate not trusted", "secure connection failed": "Secure connection failed" },
     netModePrefix: "Mode: ",
     netRssiPrefix: "RSSI Signal: ",
     joinWifi: "Join a WiFi network (2.4 GHz):",
@@ -1705,6 +1723,12 @@ const I18N = {
     mqttDesc: "Veröffentlicht den Ofenzustand an einen MQTT-Broker und nimmt Befehle entgegen, für Jeedom, openHAB, Node-RED, Domoticz… Optional.",
     mqttEnabled: "MQTT aktivieren",
     mqttDiscovery: "Home-Assistant-Erkennung",
+    mqttTls: "Verschlüsselte Verbindung (TLS)",
+    mqttTlsHelp: "Für einen Broker mit TLS, meist auf Port 8883. Sein Zertifikat muss von einer öffentlichen Zertifizierungsstelle signiert sein, oder von Ihrer eigenen, wenn Sie deren Zertifikat unten einfügen.",
+    mqttCa: "Zertifikat Ihrer Zertifizierungsstelle (PEM), optional",
+    mqttCaKeep: "Gespeichert. Leer lassen, um es zu behalten, oder ein anderes einfügen.",
+    mqttCaPlaceholder: "-----BEGIN CERTIFICATE-----",
+    mqttCaRemove: "Gespeichertes Zertifikat entfernen",
     mqttDiscoveryHelp: "Der Ofen erscheint von selbst in Home Assistant (MQTT-Integration). Nicht aktivieren, wenn Sie bereits die Open Firenet-Integration nutzen: Der Ofen wäre doppelt vorhanden.",
     mqttHost: "Broker-Adresse",
     mqttPort: "Port",
@@ -1716,7 +1740,7 @@ const I18N = {
     mqttSaving: "Speichern…",
     mqttSaved: "Gespeichert ✓",
     mqttSaveFailed: "Nicht gespeichert",
-    mqttStatus: { "disabled": "Deaktiviert", "connected": "Verbunden", "connecting": "Verbinde…", "waiting for Wi-Fi": "Warte auf WLAN", "broker unreachable": "Broker nicht erreichbar", "refused: wrong user or password": "Abgelehnt: Benutzer oder Passwort falsch", "refused by the broker": "Vom Broker abgelehnt", "no answer from the broker": "Keine Antwort vom Broker", "connection lost": "Verbindung verloren" },
+    mqttStatus: { "disabled": "Deaktiviert", "connected": "Verbunden", "connecting": "Verbinde…", "waiting for Wi-Fi": "Warte auf WLAN", "broker unreachable": "Broker nicht erreichbar", "refused: wrong user or password": "Abgelehnt: Benutzer oder Passwort falsch", "refused by the broker": "Vom Broker abgelehnt", "no answer from the broker": "Keine Antwort vom Broker", "connection lost": "Verbindung verloren", "certificate not trusted": "Zertifikat nicht vertrauenswürdig", "secure connection failed": "Verschlüsselte Verbindung fehlgeschlagen" },
     netModePrefix: "Modus: ",
     netRssiPrefix: "RSSI Signal: ",
     joinWifi: "WLAN-Netzwerk beitreten (2,4 GHz):",
@@ -1922,6 +1946,9 @@ function applyLang() {
   document.getElementById('lblMqttDesc').textContent = t.mqttDesc;
   document.getElementById('lblMqttEnabled').textContent = t.mqttEnabled;
   document.getElementById('lblMqttDiscovery').textContent = t.mqttDiscovery;
+  document.getElementById('lblMqttTls').textContent = t.mqttTls;
+  document.getElementById('lblMqttTlsHelp').textContent = t.mqttTlsHelp;
+  document.getElementById('lblMqttCa').textContent = t.mqttCa;
   document.getElementById('lblMqttDiscoveryHelp').textContent = t.mqttDiscoveryHelp;
   document.getElementById('lblMqttHost').textContent = t.mqttHost;
   document.getElementById('lblMqttPort').textContent = t.mqttPort;
@@ -2070,6 +2097,10 @@ function renderMqtt() {
   b.textContent = (t.mqttStatus && t.mqttStatus[_mqtt.status]) || _mqtt.status;
   b.classList.toggle('off', !_mqtt.connected);
   document.getElementById('mqttPass').placeholder = _mqtt.password_set ? t.mqttPassKeep : '';
+  document.getElementById('mqttCa').placeholder = _mqtt.ca_set ? t.mqttCaKeep : t.mqttCaPlaceholder;
+  const rm = document.getElementById('mqttCaRemove');
+  rm.textContent = t.mqttCaRemove;
+  rm.style.display = _mqtt.ca_set ? 'inline' : 'none';
 }
 async function loadMqtt(fill) {
   try {
@@ -2077,6 +2108,9 @@ async function loadMqtt(fill) {
     if (fill) {
       document.getElementById('mqttEnabled').checked = _mqtt.enabled;
       document.getElementById('mqttDiscovery').checked = !!_mqtt.discovery;
+      document.getElementById('mqttTls').checked = !!_mqtt.tls;
+      document.getElementById('mqttCa').value = '';
+      syncMqttTls(false);
       syncMqttDiscovery();
       document.getElementById('mqttHost').value = _mqtt.host;
       document.getElementById('mqttPort').value = _mqtt.port;
@@ -2092,6 +2126,16 @@ function syncMqttDiscovery() {
   const on = document.getElementById('mqttEnabled').checked, d = document.getElementById('mqttDiscovery');
   d.disabled = !on;
   d.closest('label').style.opacity = on ? '' : '0.5';
+}
+// The certificate box only shows with TLS ticked. Ticking TLS moves the port from the plain default to the TLS
+// default, and back, unless another port was typed.
+function syncMqttTls(userAction) {
+  const on = document.getElementById('mqttTls').checked, port = document.getElementById('mqttPort');
+  document.getElementById('mqttCaBox').style.display = on ? 'flex' : 'none';
+  if (userAction) {
+    if (on && (port.value === '' || port.value === '1883')) port.value = 8883;
+    if (!on && port.value === '8883') port.value = 1883;
+  }
 }
 // The Save button tells what happened: "Saved" in green for two seconds, or "Not saved" in red.
 let _mqttSaveTimer = null;
@@ -2110,8 +2154,11 @@ async function saveMqtt() {
     port: Number(document.getElementById('mqttPort').value) || 1883,
     user: document.getElementById('mqttUser').value.trim(),
     base_topic: document.getElementById('mqttBase').value.trim(),
-    discovery: document.getElementById('mqttDiscovery').checked
+    discovery: document.getElementById('mqttDiscovery').checked,
+    tls: document.getElementById('mqttTls').checked
   };
+  const ca = document.getElementById('mqttCa').value.trim();
+  if (ca !== '') body.ca_certificate = ca;                     // empty: the saved certificate is kept
   const pass = document.getElementById('mqttPass').value;
   if (pass !== '' || body.user === '') body.password = pass;   // no user: the stored password is cleared too
   mqttSaveFeedback('mqttSaving');
@@ -2120,6 +2167,19 @@ async function saveMqtt() {
     if (!r.ok) throw new Error(r.status);
     _mqtt = await r.json();
     document.getElementById('mqttPass').value = '';
+    document.getElementById('mqttCa').value = '';
+    renderMqtt();
+    mqttSaveFeedback('mqttSaved', 'var(--green)');
+  } catch (e) {
+    mqttSaveFeedback('mqttSaveFailed', '#ef4444');
+  }
+}
+async function removeMqttCa() {
+  mqttSaveFeedback('mqttSaving');
+  try {
+    const r = await fetch('/api/mqtt', { method: 'POST', body: JSON.stringify({ ca_certificate: '' }) });
+    if (!r.ok) throw new Error(r.status);
+    _mqtt = await r.json();
     renderMqtt();
     mqttSaveFeedback('mqttSaved', 'var(--green)');
   } catch (e) {
@@ -2127,6 +2187,7 @@ async function saveMqtt() {
   }
 }
 document.getElementById('mqttEnabled').addEventListener('change', syncMqttDiscovery);
+document.getElementById('mqttTls').addEventListener('change', () => syncMqttTls(true));
 
 loadMqtt(true);
 setInterval(() => { if (currentPage() === 'bridge') loadMqtt(false); }, 3000);
