@@ -10,6 +10,7 @@ text. Edit web/index.html, then run this script and commit both files.
 """
 import gzip
 import pathlib
+import re
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent / "open-firenet"
@@ -20,6 +21,9 @@ OUT = ROOT / "web_ui.h"
 def render() -> str:
     html = SRC.read_bytes()
     gz = gzip.compress(html, compresslevel=9, mtime=0)  # mtime=0: same input -> same bytes
+    # Byte 9 of the gzip header names the system that compressed the data: Python 3.11 writes 3 (Unix), Python 3.13
+    # writes 255 (unknown). Fixed here, so that the file does not depend on the Python version that generated it.
+    gz = gz[:9] + b"\x03" + gz[10:]
     lines = []
     for i in range(0, len(gz), 20):
         lines.append("  " + ",".join(f"0x{b:02x}" for b in gz[i:i + 20]) + ",")
@@ -35,10 +39,23 @@ def render() -> str:
     )
 
 
+def embedded_page(header: str):
+    """The page stored in a web_ui.h, decompressed; None if the file is not a consistent web_ui.h."""
+    try:
+        declared = int(re.search(r"INDEX_HTML_GZ_LEN = (\d+);", header).group(1))
+        body = header[header.index("INDEX_HTML_GZ[]"):]
+        gz = bytes(int(x, 16) for x in re.findall(r"0x([0-9a-f]{2})", body))
+        return gzip.decompress(gz) if len(gz) == declared else None
+    except (AttributeError, ValueError, OSError, EOFError):
+        return None
+
+
 def main() -> int:
     content = render()
     if "--check" in sys.argv:
-        if not OUT.exists() or OUT.read_text() != content:
+        # What matters is the page the firmware will serve: the committed bytes are decompressed and compared with
+        # index.html, so that a different zlib (another compressed form of the same page) is not reported as stale.
+        if not OUT.exists() or embedded_page(OUT.read_text()) != SRC.read_bytes():
             print(f"{OUT} is out of date: run python3 tools/gen_web_ui.py", file=sys.stderr)
             return 1
         return 0
