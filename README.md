@@ -542,6 +542,10 @@ See the integration's README for the full list of entities.
 
 ---
 
+## Contributing
+
+Reports from your stove, tests, translations, documentation and code are all welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) and the [Contribute page](https://openfirenet.github.io/contribute.html) of the website.
+
 ## Translations
 
 The web page, the Home Assistant integration and the installer are in English, French and German. Adding a language needs no programming: see [docs/TRANSLATING.md](docs/TRANSLATING.md).
