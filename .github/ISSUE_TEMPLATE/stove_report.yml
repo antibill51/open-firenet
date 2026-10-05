@@ -1,5 +1,5 @@
 name: It works on my stove
-description: Tell us about a stove model or firmware version that works, so the compatibility list can be updated.
+description: Tell us about a stove model or firmware version that works, so the compatibility and hardware lists can be updated.
 labels: ["compatibility"]
 body:
   - type: markdown
@@ -27,6 +27,12 @@ body:
       placeholder: e.g. 3.2.0
     validations:
       required: true
+  - type: input
+    id: board
+    attributes:
+      label: Board
+      description: The exact name of the ESP32-S3 board used as the bridge. It feeds the list of boards known to work.
+      placeholder: e.g. LilyGO T-Dongle-S3, ESP32-S3-DevKitC-1 N16R8
   - type: checkboxes
     id: works
     attributes:
