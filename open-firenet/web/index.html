@@ -1057,6 +1057,9 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
         <label style="flex:1;min-width:150px;display:flex;flex-direction:column;gap:4px;font-size:0.8rem;color:var(--text-dim)"><span id="lblMqttBase"></span>
           <input class="input-text" id="mqttBase" placeholder="openfirenet" autocomplete="off"></label>
       </div>
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:0.9rem">
+        <input type="checkbox" id="mqttDiscovery" style="margin-top:3px"> <span><span id="lblMqttDiscovery"></span><br><small id="lblMqttDiscoveryHelp" style="color:var(--text-dim)"></small></span>
+      </label>
       <div style="display:flex;justify-content:flex-end">
         <button type="button" class="power-btn" id="btnSaveMqtt" style="padding:8px 16px;font-size:0.9rem" onclick="saveMqtt()">Save</button>
       </div>
@@ -1253,6 +1256,8 @@ const I18N = {
     captiveHint: "Si le bouton ne réagit pas, ouvrez http://192.168.4.1 dans Safari ou Chrome.",
     mqttDesc: "Publie l'état du poêle sur un broker MQTT et reçoit des commandes, pour Jeedom, openHAB, Node-RED, Domoticz… Facultatif.",
     mqttEnabled: "Activer MQTT",
+    mqttDiscovery: "Découverte Home Assistant",
+    mqttDiscoveryHelp: "Le poêle apparaît tout seul dans Home Assistant (intégration MQTT). À laisser décoché si vous utilisez déjà l'intégration Open Firenet : vous auriez le poêle en double.",
     mqttHost: "Adresse du broker",
     mqttPort: "Port",
     mqttUser: "Utilisateur (facultatif)",
@@ -1468,6 +1473,8 @@ const I18N = {
     captiveHint: "If the button does nothing, open http://192.168.4.1 in Safari or Chrome.",
     mqttDesc: "Publishes the stove state to an MQTT broker and accepts commands, for Jeedom, openHAB, Node-RED, Domoticz… Optional.",
     mqttEnabled: "Enable MQTT",
+    mqttDiscovery: "Home Assistant discovery",
+    mqttDiscoveryHelp: "The stove appears by itself in Home Assistant (MQTT integration). Leave it off if you already use the Open Firenet integration: you would get the stove twice.",
     mqttHost: "Broker address",
     mqttPort: "Port",
     mqttUser: "User (optional)",
@@ -1683,6 +1690,8 @@ const I18N = {
     captiveHint: "Wenn die Schaltfläche nicht reagiert, öffnen Sie http://192.168.4.1 in Safari oder Chrome.",
     mqttDesc: "Veröffentlicht den Ofenzustand an einen MQTT-Broker und nimmt Befehle entgegen, für Jeedom, openHAB, Node-RED, Domoticz… Optional.",
     mqttEnabled: "MQTT aktivieren",
+    mqttDiscovery: "Home-Assistant-Erkennung",
+    mqttDiscoveryHelp: "Der Ofen erscheint von selbst in Home Assistant (MQTT-Integration). Nicht aktivieren, wenn Sie bereits die Open Firenet-Integration nutzen: Der Ofen wäre doppelt vorhanden.",
     mqttHost: "Broker-Adresse",
     mqttPort: "Port",
     mqttUser: "Benutzer (optional)",
@@ -1883,6 +1892,8 @@ function applyLang() {
   document.getElementById('captiveHint').textContent = t.captiveHint;
   document.getElementById('lblMqttDesc').textContent = t.mqttDesc;
   document.getElementById('lblMqttEnabled').textContent = t.mqttEnabled;
+  document.getElementById('lblMqttDiscovery').textContent = t.mqttDiscovery;
+  document.getElementById('lblMqttDiscoveryHelp').textContent = t.mqttDiscoveryHelp;
   document.getElementById('lblMqttHost').textContent = t.mqttHost;
   document.getElementById('lblMqttPort').textContent = t.mqttPort;
   document.getElementById('lblMqttUser').textContent = t.mqttUser;
@@ -2036,6 +2047,7 @@ async function loadMqtt(fill) {
     _mqtt = await (await fetch('/api/mqtt')).json();
     if (fill) {
       document.getElementById('mqttEnabled').checked = _mqtt.enabled;
+      document.getElementById('mqttDiscovery').checked = !!_mqtt.discovery;
       document.getElementById('mqttHost').value = _mqtt.host;
       document.getElementById('mqttPort').value = _mqtt.port;
       document.getElementById('mqttUser').value = _mqtt.user;
@@ -2051,7 +2063,8 @@ async function saveMqtt() {
     host: document.getElementById('mqttHost').value.trim(),
     port: Number(document.getElementById('mqttPort').value) || 1883,
     user: document.getElementById('mqttUser').value.trim(),
-    base_topic: document.getElementById('mqttBase').value.trim()
+    base_topic: document.getElementById('mqttBase').value.trim(),
+    discovery: document.getElementById('mqttDiscovery').checked
   };
   const pass = document.getElementById('mqttPass').value;
   if (pass !== '' || body.user === '') body.password = pass;   // no user: the stored password is cleared too

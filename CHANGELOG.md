@@ -3,6 +3,7 @@
 ## Non publié
 
 ### Features
+- MQTT: optional Home Assistant discovery. With the option ticked in the Bridge tab, the stove appears by itself in Home Assistant through its MQTT integration, without installing anything: thermostat, heating power, schedule, frost protection and eco mode switches, and the sensors. Off by default; leave it off if you use the Open Firenet integration. (#54)
 - The REST API is now described in an OpenAPI file, `openapi.yaml`: every endpoint, field, type, unit and range, usable with documentation tools and client generators. (#61)
 
 ### Fixes

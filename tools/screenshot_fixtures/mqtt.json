@@ -5,6 +5,7 @@
  "user": "openfirenet",
  "password_set": true,
  "base_topic": "openfirenet",
+ "discovery": false,
  "connected": true,
  "status": "connected"
 }
