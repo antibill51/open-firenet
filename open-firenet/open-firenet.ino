@@ -1040,6 +1040,7 @@ static void mqttStop() {
     if (g_mqttConnected) esp_mqtt_client_publish(g_mqttClient, (g_mqttBase + "/availability").c_str(), "offline", 0, 1, 1);
     old = g_mqttClient;
     g_mqttClient = nullptr; g_mqttConnected = false;
+    g_mqttError = 0; g_mqttTlsError = 0;                     // the status of the previous settings no longer applies
   }
   {
     std::lock_guard<std::mutex> lk(g_mqttMx);
