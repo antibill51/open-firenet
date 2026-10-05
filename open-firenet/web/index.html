@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
@@ -614,9 +614,6 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
   </nav>
   <div class="header-actions">
     <select class="lang-select" id="langSelect" onchange="onSelectLang(this.value)">
-      <option value="de">🇩🇪 Deutsch</option>
-      <option value="fr">🇫🇷 Français</option>
-      <option value="en">🇬🇧 English</option>
     </select>
   </div>
 </header>
@@ -1135,15 +1132,18 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
 let lastState = null;
 let userInteracting = false;
 let userInteractTimer = null;
-// Language: the one chosen before, else the browser's (French, German, or English for any other).
-function browserLang() {
-  const l = (navigator.language || 'en').slice(0, 2).toLowerCase();
-  return (l === 'fr' || l === 'de') ? l : 'en';
-}
-let curLang = localStorage.getItem('lang') || browserLang();
+// Language: the one chosen before, else the browser's when the page is translated into it, else English.
+// Adding a language = adding its block to I18N below (see docs/TRANSLATING.md); nothing else lists the languages.
+function knownLang(l) { return typeof l === 'string' && Object.prototype.hasOwnProperty.call(I18N, l) ? l : null; }
+function browserLang() { return knownLang((navigator.language || '').slice(0, 2).toLowerCase()) || 'en'; }
+let curLang = 'en';   // set once I18N is defined, see below
 
 const I18N = {
   fr: {
+    langName: "Français",
+    langFlag: "🇫🇷",
+    dayUnit: "j",
+    modelFallback: "Modèle",
     bcpLanguageTag: 'fr-FR',
     pageTitle: "Open Firenet — Tableau de Bord",
     langNext: "EN",
@@ -1364,6 +1364,10 @@ const I18N = {
     }
   },
   en: {
+    langName: "English",
+    langFlag: "🇬🇧",
+    dayUnit: "d",
+    modelFallback: "Model",
     bcpLanguageTag: 'en-US',
     pageTitle: "Open Firenet — Dashboard",
     langNext: "FR",
@@ -1584,6 +1588,10 @@ const I18N = {
     }
   },
   de: {
+    langName: "Deutsch",
+    langFlag: "🇩🇪",
+    dayUnit: "d",
+    modelFallback: "Modell",
     bcpLanguageTag: 'de-DE',
     pageTitle: "Open Firenet — Dashboard",
     langNext: "EN",
@@ -1805,8 +1813,20 @@ const I18N = {
   }
 };
 
+curLang = knownLang(localStorage.getItem('lang')) || browserLang();
+// The language menu lists every language of I18N, by its own name.
+(function buildLangSelect() {
+  const sel = document.getElementById('langSelect');
+  Object.keys(I18N).sort((a, b) => I18N[a].langName.localeCompare(I18N[b].langName)).forEach(l => {
+    const o = document.createElement('option');
+    o.value = l; o.textContent = I18N[l].langFlag + ' ' + I18N[l].langName;
+    sel.appendChild(o);
+  });
+})();
+
 function applyLang() {
-  const t = I18N[curLang] || I18N.fr;
+  const t = I18N[curLang] || I18N.en;
+  document.documentElement.lang = curLang;
   document.getElementById('pageTitle').textContent = t.pageTitle;
   const ls = document.getElementById('langSelect');
   if (ls) ls.value = curLang;
@@ -1934,7 +1954,7 @@ function applyLang() {
 }
 
 function onSelectLang(l) {
-  curLang = (l === 'fr' || l === 'en' || l === 'de') ? l : 'fr';
+  curLang = knownLang(l) || 'en';
   localStorage.setItem('lang', curLang);
   applyLang();
   if (lastState) renderSensors(lastState.raw_sensors || lastState.sensors || {}, document.getElementById('sensorSearch') ? document.getElementById('sensorSearch').value : '');
@@ -2174,7 +2194,7 @@ function stepTarget(delta) {
 }
 
 async function sendControl(name, value) {
-  const t = I18N[curLang] || I18N.fr;
+  const t = I18N[curLang] || I18N.en;
   try {
     const body = new URLSearchParams({ name: name, value: value });
     const res = await fetch('/api/control', { method: 'POST', body: body });
@@ -2190,7 +2210,7 @@ async function sendControl(name, value) {
 
 function togglePower() {
   if (!lastState) return;
-  const t = I18N[curLang] || I18N.fr;
+  const t = I18N[curLang] || I18N.en;
   const curOn = (lastState.controls && (lastState.controls.on === true || lastState.controls.onOff == 1)) ||
                 (lastState.controls_pos && lastState.controls_pos[1] == 1);
   const promptText = curOn ? t.confirmOff : t.confirmOn;
@@ -2352,7 +2372,7 @@ function encodeSlot(enabled, startStr, endStr) {
 function initScheduleUI() {
   const cont = document.getElementById('schedDaysContainer');
   if (!cont || cont.children.length > 0) return;
-  const t = I18N[curLang] || I18N.fr;
+  const t = I18N[curLang] || I18N.en;
   let html = '';
   DAYS.forEach(d => {
     const dName = (t.days && t.days[d.key]) ? t.days[d.key] : d.fr;
@@ -2402,7 +2422,7 @@ function onSetbackInput(v) {
 }
 
 function copyMonday(all) {
-  const t = I18N[curLang] || I18N.fr;
+  const t = I18N[curLang] || I18N.en;
   const chk1 = document.getElementById('chk_Mon1').checked;
   const s1 = document.getElementById('start_Mon1').value;
   const e1 = document.getElementById('end_Mon1').value;
@@ -2501,7 +2521,7 @@ async function loadSchedule(force = false) {
 }
 
 async function saveSchedule() {
-  const t = I18N[curLang] || I18N.fr;
+  const t = I18N[curLang] || I18N.en;
   const isHtActive = document.getElementById('schedActiveToggle').checked ? 1 : 0;
   const sbVal = parseFloat(document.getElementById('setbackTempRange').value);
   const payload = {
@@ -2550,7 +2570,7 @@ async function saveSchedule() {
 // browsers (macOS/iOS) block XHR to local IPs and suppress those dialogs (issue #8).
 
 async function forgetWifi() {
-  const t = I18N[curLang] || I18N.fr;
+  const t = I18N[curLang] || I18N.en;
   if (confirm(t.confirmForgetWifi)) {
     await fetch('/api/forget', { method: 'POST' });
     alert(t.forgetWifiSuccess);
@@ -2572,7 +2592,7 @@ function onSelectSsid(val) {
 async function scanWifi() {
   const sel = document.getElementById('ssidSelect');
   const btn = document.getElementById('btnScan');
-  const t = I18N[curLang] || I18N.fr;
+  const t = I18N[curLang] || I18N.en;
   if (btn) btn.disabled = true;
   sel.innerHTML = '<option value="">' + t.scanning + '</option>';
   try {
@@ -2605,7 +2625,7 @@ function formatUptime(sec) {
   const h = Math.floor((sec % 86400) / 3600);
   const m = Math.floor((sec % 3600) / 60);
   const s = Math.floor(sec % 60);
-  const dayUnit = (curLang === 'fr') ? 'j' : 'd';
+  const dayUnit = (I18N[curLang] || I18N.en).dayUnit;
   if (d > 0) return d + dayUnit + ' ' + String(h).padStart(2,'0') + 'h ' + String(m).padStart(2,'0') + 'm';
   if (h > 0) return h + 'h ' + String(m).padStart(2,'0') + 'm ' + String(s).padStart(2,'0') + 's';
   if (m > 0) return m + 'm ' + String(s).padStart(2,'0') + 's';
@@ -2613,7 +2633,7 @@ function formatUptime(sec) {
 }
 
 function renderSensors(sObj, filterText) {
-  const t = I18N[curLang] || I18N.fr;
+  const t = I18N[curLang] || I18N.en;
   const tb = document.getElementById('sensorsBody');
   let h = '';
   const f = (filterText || '').toLowerCase();
@@ -2636,7 +2656,7 @@ function renderSensors(sObj, filterText) {
         18: 'LIVO (18)', 19: 'COMO II (19)', 20: 'REVO II (20)', 21: 'COSMO (21)', 22: 'SONO (22)',
         23: 'DOMO BACK (23)', 24: 'PK E (24)', 25: 'SUMO MULTIAIR (25)', 26: 'CONNECT (26)', 29: 'PRIMO MULTIAIR (29)'
       };
-      const mFallback = (curLang === 'fr' ? 'Modèle ' : 'Model ') + v;
+      const mFallback = ((I18N[curLang] || I18N.en).modelFallback + ' ') + v;
       v = mNames[v] || mFallback;
     }
     h += '<tr><td>' + label + '</td><td style="color:var(--text-dim)">' + k + '</td><td>' + v + '</td></tr>';
@@ -2649,7 +2669,7 @@ function filterSensors(t) {
 }
 
 async function tick() {
-  const t = I18N[curLang] || I18N.fr;
+  const t = I18N[curLang] || I18N.en;
   const bcpLanguageTag = t.bcpLanguageTag || 'en-US';
   try {
     const res = await fetch('/api/state');
@@ -2778,7 +2798,7 @@ async function tick() {
     };
     // model is null until the stove has posted it (no more DOMO default): show plain "RIKA" meanwhile.
     const mId = stObj.model != null ? stObj.model : (rawS.model != null ? rawS.model : null);
-    const mFallback = (curLang === 'fr' ? 'Modèle ' : 'Model ') + mId;
+    const mFallback = ((I18N[curLang] || I18N.en).modelFallback + ' ') + mId;
     const mName = stObj.model_name || modelNames[mId] || (mId != null ? mFallback : 'RIKA');
     const vStr = stObj.mainboard_version ? (' v' + stObj.mainboard_version) : '';
     // One badge in the dashboard: stove model and mainboard firmware once linked, e.g. "DOMO v2.29 connecté".

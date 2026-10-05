@@ -8,6 +8,7 @@ narrower than 500 px).
 
     python3 tools/gen_screenshots.py            # writes assets/ui-*.png
     python3 tools/gen_screenshots.py --out DIR  # writes somewhere else
+    python3 tools/gen_screenshots.py --serve    # no screenshot: serves the page with the example data on port 8080
 
 Needs: chromium (or chromium-browser / google-chrome) and Pillow.
 """
@@ -73,7 +74,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(ROOT / "assets"))
+    ap.add_argument("--serve", action="store_true",
+                    help="only serve the page with the example data, to look at it in a browser (translations, layout)")
     args = ap.parse_args()
+    if args.serve:
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 8080), Handler)
+        print("The web page, with example data (nothing is sent to a stove): http://127.0.0.1:8080  -  Ctrl+C to stop")
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            return
     chromium = next((c for c in ("chromium", "chromium-browser", "google-chrome") if shutil.which(c)), None)
     if not chromium:
         sys.exit("chromium not found")

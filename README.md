@@ -542,6 +542,10 @@ See the integration's README for the full list of entities.
 
 ---
 
+## Translations
+
+The web page, the Home Assistant integration and the installer are in English, French and German. Adding a language needs no programming: see [docs/TRANSLATING.md](docs/TRANSLATING.md).
+
 ## Development
 
 - **Web interface**: the page source is [`open-firenet/web/index.html`](open-firenet/web/index.html). It is stored gzip-compressed in the firmware: after editing it, run `python3 tools/gen_web_ui.py` and commit both `web/index.html` and the regenerated `open-firenet/web_ui.h` (CI checks that they match).
