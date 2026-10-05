@@ -36,7 +36,7 @@
 struct AppliedControls { long on, mode, stage, room; };
 
 // MQTT settings (the logic is further down, in the MQTT section).
-struct MqttSettings { bool enabled = false; String host; uint16_t port = 1883; String user, pass, base = "openfirenet"; };
+struct MqttSettings { bool enabled = false; String host; uint16_t port = 1883; String user, pass, base = "openfirenet"; bool discovery = false; };
 static MqttSettings g_mqttCfg;
 static volatile bool g_mqttConnected = false;
 struct MqttCommand { std::string topic, payload; };
@@ -834,6 +834,12 @@ static TaskHandle_t g_mqttPublisher = nullptr;
 static std::map<std::string, std::string> g_mqttSent;   // last value published per topic
 static String g_mqttLastState;
 static uint32_t g_mqttLastStateMs = 0;
+// Home Assistant discovery (optional): the configuration messages are sent a few at a time after each connection,
+// and again when the stove model becomes known. g_mqttDiscRemove sends the empty messages that delete the entities,
+// once, after discovery was switched off.
+static size_t g_mqttDiscNext = SIZE_MAX;      // next entity to announce; SIZE_MAX = nothing to send
+static bool g_mqttDiscRemove = false;
+static String g_mqttDiscModel;                // model name the entities were announced with
 
 // Runs in the client's task: no access to the stove link from here.
 static void mqttEvent(void*, esp_event_base_t, int32_t id, void* data) {
@@ -923,6 +929,7 @@ static void mqttLoadSettings() {
   g_mqttCfg.user = prefs.getString("mq_user", "");
   g_mqttCfg.pass = prefs.getString("mq_pass", "");
   g_mqttCfg.base = prefs.getString("mq_base", "openfirenet");
+  g_mqttCfg.discovery = prefs.getBool("mq_disc", false);
   prefs.end();
   if (g_mqttCfg.base.isEmpty()) g_mqttCfg.base = "openfirenet";
 }
@@ -993,11 +1000,42 @@ static bool mqttQueue(const std::string& leaf, const char* data, size_t len) {
   return true;
 }
 
+// Queues up to four discovery messages per call (see g_mqttDiscNext).
+static void mqttDiscoveryStep() {
+  if (g_mqttDiscNext == SIZE_MAX) return;
+  uint8_t mac[6]; WiFi.macAddress(mac);
+  char id[32]; snprintf(id, sizeof id, "openfirenet_%02x%02x%02x", mac[3], mac[4], mac[5]);
+  firenet::mqtt::DiscoveryDevice dev;
+  dev.id = id;
+  dev.base = g_mqttBase;
+  dev.model = g_mqttDiscModel.c_str();
+  dev.version = OPENFIRENET_VERSION;
+  dev.url = std::string("http://") + WiFi.localIP().toString().c_str();
+  std::string topic, payload;
+  for (int n = 0; n < 4; n++) {
+    if (!firenet::mqtt::discoveryEntity(g_mqttDiscNext, dev, g_mqttDiscRemove, topic, payload)) {
+      g_mqttDiscNext = SIZE_MAX; g_mqttDiscRemove = false;
+      return;
+    }
+    std::lock_guard<std::mutex> lk(g_mqttMx);
+    if (g_mqttOutbox.size() >= MQTT_OUTBOX_MAX) return;            // tried again at the next pass
+    g_mqttOutbox.push_back({topic, payload});
+    g_mqttDiscNext++;
+  }
+}
+
 // Queues what changed: the JSON state at most every 5 s (and at least every 60 s), then up to 25 single values per
 // call, so a full refresh is spread over a few seconds.
 static void mqttPublish() {
   const auto& m = g_link->model();
   bool linked = m.version_ack && !m.sensors_pos.empty();
+  if (g_mqttCfg.discovery) {
+    // Announce again once the stove has told its model, so that the device shows it.
+    long modelId = sensorValue(m, "model", -1);
+    String model = (linked && modelId >= 0) ? String(getStoveModelName(modelId)) : String();
+    if (model != g_mqttDiscModel && !g_mqttDiscRemove) { g_mqttDiscModel = model; g_mqttDiscNext = 0; }
+  }
+  mqttDiscoveryStep();
   char dev[160];
   snprintf(dev, sizeof dev, "{\"device\":{\"version\":\"" OPENFIRENET_VERSION "\",\"connected\":%s,\"ip\":\"%s\"}",
            linked ? "true" : "false", WiFi.localIP().toString().c_str());
@@ -1024,8 +1062,11 @@ static void mqttPublish() {
 static void mqttLoop() {
   if (g_mqttReload) {
     g_mqttReload = false;
+    bool hadDiscovery = g_mqttCfg.discovery;
     mqttStop();
     mqttLoadSettings();
+    // Discovery switched off: the entities are deleted from Home Assistant at the next connection.
+    if (hadDiscovery && !g_mqttCfg.discovery) { g_mqttDiscRemove = true; g_mqttDiscNext = 0; }
   }
   if (!g_mqttClient) {
     // Started once Wi-Fi is up; from then on the client reconnects by itself.
@@ -1041,7 +1082,11 @@ static void mqttLoop() {
     }
     mqttApply(c);
   }
-  if (g_mqttFresh) { g_mqttFresh = false; g_mqttSent.clear(); g_mqttLastState = ""; DBG.println("[mqtt] full refresh"); }
+  if (g_mqttFresh) {
+    g_mqttFresh = false; g_mqttSent.clear(); g_mqttLastState = ""; DBG.println("[mqtt] full refresh");
+    if (g_mqttCfg.discovery) { g_mqttDiscNext = 0; g_mqttDiscRemove = false; }
+    else if (!g_mqttDiscRemove) g_mqttDiscNext = SIZE_MAX;
+  }
   static uint32_t lastPublish = 0;
   if (g_mqttConnected && millis() - lastPublish >= 1000) { lastPublish = millis(); mqttPublish(); }
 }
@@ -1057,7 +1102,7 @@ static String jsonEscape(const String& in) {
 }
 
 // GET /api/mqtt: settings (the password is never returned) and connection status.
-// POST /api/mqtt: enabled, host, port, user, password, base_topic (JSON or form). A field left out keeps its value.
+// POST /api/mqtt: enabled, host, port, user, password, base_topic, discovery (JSON or form). A field left out keeps its value.
 static void handleMqtt() {
   sendCors();
   if (web.method() == HTTP_OPTIONS) { web.send(204); return; }
@@ -1073,6 +1118,7 @@ static void handleMqtt() {
       else if (p.first == "port") { long n = v.toInt(); prefs.putUShort("mq_port", (n > 0 && n < 65536) ? (uint16_t)n : 1883); }
       else if (p.first == "user") prefs.putString("mq_user", v.substring(0, 64));
       else if (p.first == "password") prefs.putString("mq_pass", String(p.second.c_str()).substring(0, 64));
+      else if (p.first == "discovery") prefs.putBool("mq_disc", v == "true" || v == "1" || v == "on");
       else if (p.first == "base_topic") {
         while (v.endsWith("/")) v.remove(v.length() - 1);
         if (v.indexOf('#') < 0 && v.indexOf('+') < 0) prefs.putString("mq_base", v.isEmpty() ? String("openfirenet") : v.substring(0, 64));
@@ -1087,11 +1133,12 @@ static void handleMqtt() {
     prefs.begin("firenet", true);
     c.enabled = prefs.getBool("mq_on", false); c.host = prefs.getString("mq_host", ""); c.port = prefs.getUShort("mq_port", 1883);
     c.user = prefs.getString("mq_user", ""); c.pass = prefs.getString("mq_pass", ""); c.base = prefs.getString("mq_base", "openfirenet");
+    c.discovery = prefs.getBool("mq_disc", false);
     prefs.end();
   }
   String j = "{\"enabled\":" + String(c.enabled ? "true" : "false") + ",\"host\":\"" + jsonEscape(c.host) + "\",\"port\":" + String(c.port)
     + ",\"user\":\"" + jsonEscape(c.user) + "\",\"password_set\":" + String(c.pass.isEmpty() ? "false" : "true")
-    + ",\"base_topic\":\"" + jsonEscape(c.base) + "\",\"connected\":" + String(!g_mqttReload && g_mqttConnected ? "true" : "false")
+    + ",\"base_topic\":\"" + jsonEscape(c.base) + "\",\"discovery\":" + String(c.discovery ? "true" : "false") + ",\"connected\":" + String(!g_mqttReload && g_mqttConnected ? "true" : "false")
     + ",\"status\":\"" + String(g_mqttReload ? (c.enabled && !c.host.isEmpty() ? "connecting" : "disabled") : mqttStatus()) + "\"}";
   web.send(200, "application/json", j);
 }
