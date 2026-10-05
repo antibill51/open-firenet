@@ -831,10 +831,22 @@ static volatile int g_mqttError = 0;          // 0 none, -1 broker unreachable, 
 static bool g_mqttReload = false;             // settings changed: restart the client with the new ones
 static std::string g_mqttBase;                // base topic of the running client
 static std::string g_mqttCa;                  // authority certificate of the running client (TLS)
+static volatile int g_mqttTlsError = 0;       // last error code of the TLS layer (mbedTLS), 0 when none
 static std::mutex g_mqttMx;
 static std::deque<MqttCommand> g_mqttInbox;
 static std::deque<std::pair<std::string, std::string>> g_mqttOutbox;   // topic, payload (all retained, QoS 0)
-static const size_t MQTT_OUTBOX_MAX = 96;
+// The queue is limited in bytes: a full refresh (about 50 values and 25 discovery messages, 30 kB in all) used to
+// be queued at once, which left a DOMO with less than 2 kB of free memory right after a TLS connection.
+static const size_t MQTT_OUTBOX_MAX_BYTES = 3072;
+static size_t g_mqttOutboxBytes = 0;
+// Queues a message (g_mqttMx held by the caller). An empty queue takes any message, however long.
+static bool mqttOutboxPush(std::string topic, std::string payload) {
+  size_t n = topic.size() + payload.size();
+  if (!g_mqttOutbox.empty() && g_mqttOutboxBytes + n > MQTT_OUTBOX_MAX_BYTES) return false;
+  g_mqttOutboxBytes += n;
+  g_mqttOutbox.push_back({std::move(topic), std::move(payload)});
+  return true;
+}
 static std::mutex g_mqttClientMx;             // held while publishing, and while the client is stopped and destroyed
 static TaskHandle_t g_mqttPublisher = nullptr;
 static std::map<std::string, std::string> g_mqttSent;   // last value published per topic
@@ -852,18 +864,20 @@ static void mqttEvent(void*, esp_event_base_t, int32_t id, void* data) {
   static std::string rxTopic, rxData;
   static bool rxRetained = false;
   auto* e = (esp_mqtt_event_handle_t)data;
+  if (e->client != g_mqttClient) return;                     // a client being stopped (settings changed)
   switch ((esp_mqtt_event_id_t)id) {
     case MQTT_EVENT_CONNECTED:
       esp_mqtt_client_publish(e->client, (g_mqttBase + "/availability").c_str(), "online", 0, 1, 1);
       esp_mqtt_client_subscribe(e->client, (g_mqttBase + "/set").c_str(), 1);
       esp_mqtt_client_subscribe(e->client, (g_mqttBase + "/set/#").c_str(), 1);
-      g_mqttError = 0; g_mqttFresh = true; g_mqttConnected = true;
+      g_mqttError = 0; g_mqttTlsError = 0; g_mqttFresh = true; g_mqttConnected = true;
       break;
     case MQTT_EVENT_DISCONNECTED:
       if (g_mqttConnected) g_mqttError = -3;
       g_mqttConnected = false;
       break;
     case MQTT_EVENT_ERROR:
+      g_mqttTlsError = e->error_handle ? e->error_handle->esp_tls_stack_err : 0;
       if (e->error_handle && e->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) {
         g_mqttError = (int)e->error_handle->connect_return_code;
       } else if (g_mqttCfg.tls && e->error_handle &&
@@ -902,7 +916,10 @@ static void mqttPublisherTask(void*) {
     bool have = false;
     {
       std::lock_guard<std::mutex> lk(g_mqttMx);
-      if (!g_mqttOutbox.empty()) { msg = std::move(g_mqttOutbox.front()); g_mqttOutbox.pop_front(); have = true; }
+      if (!g_mqttOutbox.empty()) {
+        msg = std::move(g_mqttOutbox.front()); g_mqttOutbox.pop_front(); have = true;
+        g_mqttOutboxBytes -= msg.first.size() + msg.second.size();
+      }
     }
     if (!have) { vTaskDelay(pdMS_TO_TICKS(20)); continue; }
     bool sent = false;
@@ -913,7 +930,7 @@ static void mqttPublisherTask(void*) {
     }
     if (!sent) {
       std::lock_guard<std::mutex> lk(g_mqttMx);
-      g_mqttOutbox.clear();
+      g_mqttOutbox.clear(); g_mqttOutboxBytes = 0;
       g_mqttFresh = true;
     }
   }
@@ -991,7 +1008,7 @@ static void mqttStart() {
   // DOMO while a refused broker was retried every 10 s): the attempts are spaced out.
   c.network.reconnect_timeout_ms = g_mqttCfg.tls ? 30000 : 10000;
   c.network.timeout_ms = g_mqttCfg.tls ? 6000 : 3000;       // a TLS handshake takes a few seconds on this chip
-  c.buffer.size = 2048;                                      // the state JSON is about 1.5 kB
+  c.buffer.size = 1024;                                      // longer messages are sent in several parts
   g_mqttError = 0; g_mqttConnected = false;
   g_mqttClient = esp_mqtt_client_init(&c);
   if (!g_mqttClient) { DBG.println("[mqtt] client init failed"); return; }
@@ -1001,19 +1018,36 @@ static void mqttStart() {
   DBG.printf("[mqtt] client started, broker %s:%u\n", g_mqttCfg.host.c_str(), (unsigned)g_mqttCfg.port);
 }
 
-// Only called when the settings change. It waits for the client's task to end, which can take up to the network
-// timeout (3 s) if the task is in the middle of a connection attempt.
+// Stops and frees a client in a task of its own: stopping waits for the client's task to end, which takes up to the
+// network timeout when a connection attempt is in progress (6 s with TLS). Done in the main loop, that froze the
+// web page and the dialogue with the stove for as long.
+static volatile bool g_mqttStopping = false;
+static void mqttStopTask(void* arg) {
+  esp_mqtt_client_handle_t old = (esp_mqtt_client_handle_t)arg;
+  esp_mqtt_client_stop(old);
+  esp_mqtt_client_destroy(old);
+  g_mqttStopping = false;                                    // a new client may start: the memory is back
+  vTaskDelete(nullptr);
+}
+
+// Only called when the settings change.
 static void mqttStop() {
   if (!g_mqttClient) return;
+  esp_mqtt_client_handle_t old;
   {
     std::lock_guard<std::mutex> lk(g_mqttClientMx);
     if (g_mqttConnected) esp_mqtt_client_publish(g_mqttClient, (g_mqttBase + "/availability").c_str(), "offline", 0, 1, 1);
-    esp_mqtt_client_stop(g_mqttClient);
-    esp_mqtt_client_destroy(g_mqttClient);
+    old = g_mqttClient;
     g_mqttClient = nullptr; g_mqttConnected = false;
   }
-  std::lock_guard<std::mutex> lk(g_mqttMx);
-  g_mqttInbox.clear(); g_mqttOutbox.clear();
+  {
+    std::lock_guard<std::mutex> lk(g_mqttMx);
+    g_mqttInbox.clear(); g_mqttOutbox.clear(); g_mqttOutboxBytes = 0;
+  }
+  g_mqttStopping = true;
+  if (xTaskCreate(mqttStopTask, "mqtt-stop", 4096, old, 1, nullptr) != pdPASS) {
+    esp_mqtt_client_stop(old); esp_mqtt_client_destroy(old); g_mqttStopping = false;   // no task: do it here
+  }
 }
 
 static const char* mqttStatus() {
@@ -1033,9 +1067,7 @@ static const char* mqttStatus() {
 
 static bool mqttQueue(const std::string& leaf, const char* data, size_t len) {
   std::lock_guard<std::mutex> lk(g_mqttMx);
-  if (g_mqttOutbox.size() >= MQTT_OUTBOX_MAX) return false;   // not marked as sent: tried again at the next pass
-  g_mqttOutbox.push_back({g_mqttBase + "/" + leaf, std::string(data, len)});
-  return true;
+  return mqttOutboxPush(g_mqttBase + "/" + leaf, std::string(data, len));   // false: tried again at the next pass
 }
 
 // Queues up to four discovery messages per call (see g_mqttDiscNext).
@@ -1056,8 +1088,7 @@ static void mqttDiscoveryStep() {
       return;
     }
     std::lock_guard<std::mutex> lk(g_mqttMx);
-    if (g_mqttOutbox.size() >= MQTT_OUTBOX_MAX) return;            // tried again at the next pass
-    g_mqttOutbox.push_back({topic, payload});
+    if (!mqttOutboxPush(topic, payload)) return;                   // tried again at the next pass
     g_mqttDiscNext++;
   }
 }
@@ -1107,6 +1138,7 @@ static void mqttLoop() {
     if (hadDiscovery && !g_mqttCfg.discovery) { g_mqttDiscRemove = true; g_mqttDiscNext = 0; }
   }
   if (!g_mqttClient) {
+    if (g_mqttStopping) return;                              // the previous client is still being freed
     // Started once Wi-Fi is up; from then on the client reconnects by itself.
     if (g_mqttCfg.enabled && !g_mqttCfg.host.isEmpty() && !g_isApMode && WiFi.status() == WL_CONNECTED) mqttStart();
     return;
@@ -1191,7 +1223,8 @@ static void handleMqtt() {
   String j = "{\"enabled\":" + String(c.enabled ? "true" : "false") + ",\"host\":\"" + jsonEscape(c.host) + "\",\"port\":" + String(c.port)
     + ",\"user\":\"" + jsonEscape(c.user) + "\",\"password_set\":" + String(c.pass.isEmpty() ? "false" : "true")
     + ",\"base_topic\":\"" + jsonEscape(c.base) + "\",\"discovery\":" + String(c.discovery ? "true" : "false")
-    + ",\"tls\":" + String(c.tls ? "true" : "false") + ",\"ca_set\":" + String(c.ca.isEmpty() ? "false" : "true") + ",\"connected\":" + String(!g_mqttReload && g_mqttConnected ? "true" : "false")
+    + ",\"tls\":" + String(c.tls ? "true" : "false") + ",\"ca_set\":" + String(c.ca.isEmpty() ? "false" : "true")
+    + ",\"tls_error\":" + String(g_mqttReload ? 0 : (int)g_mqttTlsError) + ",\"connected\":" + String(!g_mqttReload && g_mqttConnected ? "true" : "false")
     + ",\"status\":\"" + String(g_mqttReload ? (c.enabled && !c.host.isEmpty() ? "connecting" : "disabled") : mqttStatus()) + "\"}";
   web.send(200, "application/json", j);
 }

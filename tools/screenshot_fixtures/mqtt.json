@@ -8,6 +8,7 @@
  "discovery": false,
  "tls": false,
  "ca_set": false,
+ "tls_error": 0,
  "connected": true,
  "status": "connected"
 }
