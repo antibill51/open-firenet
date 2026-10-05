@@ -1,5 +1,14 @@
 # Changelog
 
+## Non publié
+
+### Features
+- MQTT: optional encrypted connection (TLS). The broker's certificate is checked against the public authorities, or against your own authority if you paste its certificate, for a home broker with a self-made certificate. (#54)
+
+### Fixes
+- MQTT: after a connection, the bridge no longer queues all its messages at once, which used a lot of memory for a few seconds; and changing the MQTT settings no longer freezes the web page for several seconds.
+- The log of the exchanges with the stove keeps about the last 32 kB instead of 48 kB, to leave more free memory.
+
 ## v3.4.0 (2026-10-06)
 
 ### Features
