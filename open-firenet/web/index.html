@@ -1265,6 +1265,9 @@ const I18N = {
     mqttPassKeep: "Inchangé",
     mqttBase: "Sujet de base",
     mqttSave: "Enregistrer",
+    mqttSaving: "Enregistrement…",
+    mqttSaved: "Enregistré ✓",
+    mqttSaveFailed: "Non enregistré",
     mqttStatus: { "disabled": "Désactivé", "connected": "Connecté", "connecting": "Connexion…", "waiting for Wi-Fi": "En attente du Wi-Fi", "broker unreachable": "Broker injoignable", "refused: wrong user or password": "Refusé : utilisateur ou mot de passe incorrect", "refused by the broker": "Refusé par le broker", "no answer from the broker": "Le broker ne répond pas", "connection lost": "Connexion perdue" },
     netModePrefix: "Mode : ",
     netRssiPrefix: "Signal RSSI : ",
@@ -1482,6 +1485,9 @@ const I18N = {
     mqttPassKeep: "Unchanged",
     mqttBase: "Base topic",
     mqttSave: "Save",
+    mqttSaving: "Saving…",
+    mqttSaved: "Saved ✓",
+    mqttSaveFailed: "Not saved",
     mqttStatus: { "disabled": "Disabled", "connected": "Connected", "connecting": "Connecting…", "waiting for Wi-Fi": "Waiting for Wi-Fi", "broker unreachable": "Broker unreachable", "refused: wrong user or password": "Refused: wrong user or password", "refused by the broker": "Refused by the broker", "no answer from the broker": "No answer from the broker", "connection lost": "Connection lost" },
     netModePrefix: "Mode: ",
     netRssiPrefix: "RSSI Signal: ",
@@ -1699,6 +1705,9 @@ const I18N = {
     mqttPassKeep: "Unverändert",
     mqttBase: "Basis-Topic",
     mqttSave: "Speichern",
+    mqttSaving: "Speichern…",
+    mqttSaved: "Gespeichert ✓",
+    mqttSaveFailed: "Nicht gespeichert",
     mqttStatus: { "disabled": "Deaktiviert", "connected": "Verbunden", "connecting": "Verbinde…", "waiting for Wi-Fi": "Warte auf WLAN", "broker unreachable": "Broker nicht erreichbar", "refused: wrong user or password": "Abgelehnt: Benutzer oder Passwort falsch", "refused by the broker": "Vom Broker abgelehnt", "no answer from the broker": "Keine Antwort vom Broker", "connection lost": "Verbindung verloren" },
     netModePrefix: "Modus: ",
     netRssiPrefix: "RSSI Signal: ",
@@ -2048,6 +2057,7 @@ async function loadMqtt(fill) {
     if (fill) {
       document.getElementById('mqttEnabled').checked = _mqtt.enabled;
       document.getElementById('mqttDiscovery').checked = !!_mqtt.discovery;
+      syncMqttDiscovery();
       document.getElementById('mqttHost').value = _mqtt.host;
       document.getElementById('mqttPort').value = _mqtt.port;
       document.getElementById('mqttUser').value = _mqtt.user;
@@ -2056,6 +2066,22 @@ async function loadMqtt(fill) {
     }
     renderMqtt();
   } catch (e) { /* older firmware or bridge unreachable: the card keeps its last state */ }
+}
+// Discovery only makes sense with MQTT enabled: its box is greyed out otherwise.
+function syncMqttDiscovery() {
+  const on = document.getElementById('mqttEnabled').checked, d = document.getElementById('mqttDiscovery');
+  d.disabled = !on;
+  d.closest('label').style.opacity = on ? '' : '0.5';
+}
+// The Save button tells what happened: "Saved" in green for two seconds, or "Not saved" in red.
+let _mqttSaveTimer = null;
+function mqttSaveFeedback(key, color) {
+  const t = I18N[curLang] || I18N.en, btn = document.getElementById('btnSaveMqtt');
+  clearTimeout(_mqttSaveTimer);
+  btn.textContent = t[key];
+  btn.style.background = color || '';
+  btn.disabled = key === 'mqttSaving';
+  if (key !== 'mqttSave' && key !== 'mqttSaving') _mqttSaveTimer = setTimeout(() => mqttSaveFeedback('mqttSave'), 2500);
 }
 async function saveMqtt() {
   const body = {
@@ -2068,12 +2094,20 @@ async function saveMqtt() {
   };
   const pass = document.getElementById('mqttPass').value;
   if (pass !== '' || body.user === '') body.password = pass;   // no user: the stored password is cleared too
+  mqttSaveFeedback('mqttSaving');
   try {
-    _mqtt = await (await fetch('/api/mqtt', { method: 'POST', body: JSON.stringify(body) })).json();
+    const r = await fetch('/api/mqtt', { method: 'POST', body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(r.status);
+    _mqtt = await r.json();
     document.getElementById('mqttPass').value = '';
     renderMqtt();
-  } catch (e) { /* shown by the status badge at the next refresh */ }
+    mqttSaveFeedback('mqttSaved', 'var(--green)');
+  } catch (e) {
+    mqttSaveFeedback('mqttSaveFailed', '#ef4444');
+  }
 }
+document.getElementById('mqttEnabled').addEventListener('change', syncMqttDiscovery);
+
 loadMqtt(true);
 setInterval(() => { if (currentPage() === 'bridge') loadMqtt(false); }, 3000);
 
