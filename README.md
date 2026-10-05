@@ -512,13 +512,19 @@ Notes:
 - MQTT 3.1.1 over plain TCP (no TLS): meant for a broker on your local network. Values are published with QoS 0; commands are subscribed with QoS 1.
 - If the broker is unreachable the bridge retries every 10 s on its own. The link with the stove is not affected.
 
+### Home Assistant discovery
+
+With **Home Assistant discovery** ticked in the MQTT card (off by default), the bridge also publishes the configuration messages of Home Assistant's MQTT integration, under `homeassistant/`: the stove then appears by itself in Home Assistant, as one device with a thermostat (on/off, target temperature, manual / auto / comfort presets), the heating power, the schedule, frost protection and eco mode switches, and the sensors (temperatures, pellets, service countdown, state, error and warning codes). Home Assistant needs its MQTT integration connected to the same broker.
+
+Leave it off if you already use the [Open Firenet integration](#home-assistant-integration): you would get the stove twice. The integration remains the most complete way (MultiAir fans, weekly schedule slots, external temperature sensor). Unticking the option removes the entities from Home Assistant.
+
 `GET /api/mqtt` returns the settings (never the password) and the connection status:
 
 ```json
-{"enabled": true, "host": "192.168.1.10", "port": 1883, "user": "openfirenet", "password_set": true, "base_topic": "openfirenet", "connected": true, "status": "connected"}
+{"enabled": true, "host": "192.168.1.10", "port": 1883, "user": "openfirenet", "password_set": true, "base_topic": "openfirenet", "discovery": false, "connected": true, "status": "connected"}
 ```
 
-`POST /api/mqtt` accepts `enabled`, `host`, `port`, `user`, `password` and `base_topic` (JSON or form); a field left out keeps its value.
+`POST /api/mqtt` accepts `enabled`, `host`, `port`, `user`, `password`, `base_topic` and `discovery` (JSON or form); a field left out keeps its value.
 
 ## Home Assistant Integration
 
