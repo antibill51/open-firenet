@@ -268,7 +268,7 @@ paths:
       summary: Log of the exchanges with the stove
       description: |
         Plain text, one line per frame: `[uptime in ms][rx|tx] content`. Identical consecutive lines are merged
-        (`xN`). The Wi-Fi password is masked. Kept in memory only (about the last 48 kB).
+        (`xN`). The Wi-Fi password is masked. Kept in memory only (about the last 32 kB).
       responses:
         "200":
           description: The log

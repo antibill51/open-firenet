@@ -641,9 +641,10 @@ static void handleScan() {
 // Journal : tampon circulaire statique (aucune allocation, aucune copie → pas de
 // fragmentation du tas). Les lignes identiques consécutives sont regroupées en une seule
 // ligne « xN » pour qu'une rafale ne chasse pas le reste du journal.
-// 48 KB: the ring is reserved in RAM at boot; 96 KB left a DOMO 2.29 with only ~25 KB of free heap at its lowest
-// (repeated lines are merged, so 48 KB still holds several minutes of traffic).
-static const size_t LOG_RING_BYTES = 48 * 1024;
+// 32 KB: the ring is reserved in RAM at boot, so it is taken from the free memory at all times. 96 KB left a DOMO
+// 2.29 with only ~25 KB of free heap at its lowest; 48 KB left 14 KB during a TLS connection to an MQTT broker.
+// Repeated lines are merged, so 32 KB still holds a few minutes of normal traffic.
+static const size_t LOG_RING_BYTES = 32 * 1024;
 static char     g_logRing[LOG_RING_BYTES];
 static uint64_t g_logTotal = 0;             // octets écrits depuis le boot (position absolue)
 static std::mutex g_logMx;                  // logEntry() est aussi appelé depuis des callbacks USB
@@ -877,17 +878,17 @@ static void mqttEvent(void*, esp_event_base_t, int32_t id, void* data) {
       g_mqttConnected = false;
       break;
     case MQTT_EVENT_ERROR:
-      g_mqttTlsError = e->error_handle ? e->error_handle->esp_tls_stack_err : 0;
+      // The code of mbedTLS, as a positive number (it is reported so on a DOMO: 0x3000, 0x7280).
+      g_mqttTlsError = e->error_handle ? abs(e->error_handle->esp_tls_stack_err) : 0;
       if (e->error_handle && e->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) {
         g_mqttError = (int)e->error_handle->connect_return_code;
       } else if (g_mqttCfg.tls && e->error_handle &&
-                 (e->error_handle->esp_tls_cert_verify_flags != 0 || e->error_handle->esp_tls_stack_err == -0x2700 ||
-                  e->error_handle->esp_tls_stack_err == -0x3000)) {
-        // mbedTLS: certificate verification failed (-0x2700), or refused by the check against the public
-        // authorities (-0x3000, seen on a DOMO with a broker signed by an authority of its own and none given)
+                 (e->error_handle->esp_tls_cert_verify_flags != 0 || g_mqttTlsError == 0x2700 || g_mqttTlsError == 0x3000)) {
+        // Certificate verification failed (0x2700), or refused by the check against the public authorities
+        // (0x3000, measured on a DOMO with a broker signed by an authority of its own and none given).
         g_mqttError = -5;
-      } else if (g_mqttCfg.tls && e->error_handle && e->error_handle->esp_tls_stack_err != 0) {
-        g_mqttError = -6;                                        // the TLS handshake failed for another reason
+      } else if (g_mqttCfg.tls && g_mqttTlsError != 0) {
+        g_mqttError = -6;                                        // the TLS dialogue failed for another reason (0x7280: plain port)
       } else {
         g_mqttError = -1;
       }
