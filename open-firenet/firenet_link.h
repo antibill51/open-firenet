@@ -169,6 +169,9 @@ public:
   // would burn through a stage's tries far faster than the retries it was meant to allow.
   static const uint32_t STAGE_TIMEOUT_MS = 3000;   // 3x VERSION_RETRY_MS (declared later in the class)
   void maybeAdvanceStage() {
+    // Once a family was acknowledged in this session, the stove is known: keep probing with that family only,
+    // instead of sending it again the probes of the other families, which announce other versions (issue #4).
+    if (last_good_stage_ >= 0) return;
     if (now_() - stage_start_ms_ >= STAGE_TIMEOUT_MS) {
       detect_stage_ = (detect_stage_ + 1) % DETECT_STAGE_COUNT;
       stage_start_ms_ = now_();
@@ -756,9 +759,13 @@ private:
     }
     if (buf.find("GET_CDCDEVICE_VERSION_UNFINISHED") != std::string::npos) return;
     if (!model_.version_ack && looksLikeProbe) {
+      // A bare "0" (no SYN byte) is answered at most once per VERSION_RETRY_MS: the stove answers "0" to every
+      // probe it refuses, and answering each one at once made about 20 probes per second (SONO 2.28, issue #4).
+      if (buf.find('\x16') == std::string::npos && version_sent_ && (now_() - last_version_ms_) < VERSION_RETRY_MS) return;
       txq_.clear();
       sendVersion();
       last_tx_ms_ = 0;
+      version_sent_ = true; last_version_ms_ = now_();   // shared with poll(): one probe per VERSION_RETRY_MS in all
       return;
     }
     // V1 stove session reset. On the INDUO 2.27 the `02 30 03` reply comes from the silence responder
@@ -776,6 +783,7 @@ private:
       txq_.clear();
       sendVersion();
       last_tx_ms_ = 0;
+      version_sent_ = true; last_version_ms_ = now_();    // the following "0"s are answered at the retry pace
       return;
     }
     // Post-handshake probe recovery (issue #4): the stove kept "acknowledging"
