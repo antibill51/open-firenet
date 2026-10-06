@@ -357,6 +357,7 @@ static String jsonState() {
       "\"wifi_rssi\":%d,"
       "\"uptime_seconds\":%lu,"
       "\"free_heap\":%u,"
+      "\"ota_slot_bytes\":%u,"
       "\"connected\":%s"
     "},",
     (WiFi.getMode()==WIFI_AP?WiFi.softAPIP():WiFi.localIP()).toString().c_str(),
@@ -365,6 +366,9 @@ static String jsonState() {
     WiFi.RSSI(),
     millis() / 1000UL,
     ESP.getFreeHeap(),
+    // Size of the partition a wireless update is written to: a firmware larger than this cannot be installed
+    // over Wi-Fi (1,310,720 bytes on a board flashed with Arduino's default partition scheme).
+    (unsigned)ESP.getFreeSketchSpace(),
     m.version_ack ? "true" : "false"
   );
 

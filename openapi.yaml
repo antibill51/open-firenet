@@ -355,6 +355,7 @@ components:
         wifi_rssi: { type: integer, description: Wi-Fi signal in dBm }
         uptime_seconds: { type: integer }
         free_heap: { type: integer, description: Free memory in bytes }
+        ota_slot_bytes: { type: integer, description: Size in bytes of the slot a wireless update is written to. A firmware larger than this must be installed over USB }
         connected: { type: boolean, description: Same as `version_ack` }
     Stove:
       type: object
