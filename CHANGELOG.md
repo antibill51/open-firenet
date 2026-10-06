@@ -4,6 +4,7 @@
 
 ### Features
 - Web page: Italian translation (contributed by @lupin28). (#65)
+- The bridge reports the size of its update slot (`device.ota_slot_bytes` in `/api/state`), so the installer can tell when a firmware is too large for a wireless update instead of failing silently. (open-firenet-installer#16)
 
 ### Fixes
 - RIKA SONO with firmware 2.28: the stove no longer shows "FIRENET UPDATE" instead of linking. The bridge now announces its version in a single USB message; sent in two pieces, this stove recorded a wrong version and asked to update the stick. (#4)
