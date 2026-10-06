@@ -1,5 +1,9 @@
 # Changelog
 
+## Non publié
+
+- Web page: Italian translation.
+
 ## v3.5.0 (2026-10-06)
 
 ### Features
