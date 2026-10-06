@@ -1,6 +1,6 @@
 # Changelog
 
-## Non publié
+## v3.6.0 (2026-10-07)
 
 ### Features
 - Web page: Italian translation (contributed by @lupin28). (#65)
