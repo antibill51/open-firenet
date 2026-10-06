@@ -2,7 +2,9 @@
 
 ## Non publié
 
-- Web page: Italian translation.
+### Features
+- Web page: Italian translation (contributed by @lupin28). (#65)
+- The bridge reports the size of its update slot (`device.ota_slot_bytes` in `/api/state`), so the installer can tell when a firmware is too large for a wireless update instead of failing silently. (open-firenet-installer#16)
 
 ## v3.5.0 (2026-10-06)
 
