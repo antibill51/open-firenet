@@ -91,7 +91,7 @@ chmod +x flash.sh
 
 The script compiles then flashes bootloader + partition table + app. The NVS partition (WiFi credentials) is **preserved** across flashes.
 
-> **Building from the Arduino IDE?** Select **Tools > Partition Scheme > "Minimal SPIFFS (1.9MB APP with OTA)"**, the scheme the releases and `flash.sh` use. With the default scheme the firmware no longer fits (limit 1,310,720 bytes), and a board flashed that way cannot take wireless updates of recent versions: flash it once over USB with the [Installer](https://github.com/openfirenet/open-firenet-installer) to fix it.
+> **Building from the Arduino IDE?** Select **Tools > Partition Scheme > "Minimal SPIFFS (1.9MB APP with OTA)"**, the scheme the releases and `flash.sh` use. With the default scheme the firmware no longer fits (limit 1,310,720 bytes), and a board flashed that way cannot take wireless updates of recent versions: flash it once over USB with the [Installer](https://github.com/openfirenet/open-firenet-installer) in "Full Reset (Factory Image)" mode to fix it (the "Update" mode keeps the old partition table).
 
 ---
 
