@@ -618,6 +618,13 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
   </div>
 </header>
 <main>
+  <div id="refusedBanner" style="display:none;background:rgba(245,158,11,0.15);border:1px solid var(--amber);border-radius:10px;padding:12px 16px;font-size:0.9rem;align-items:center;gap:12px">
+    <span style="font-size:1.5rem">🔒</span>
+    <div>
+      <b id="refusedTitle"></b>
+      <p style="font-size:0.85rem;color:var(--text-dim)"><span id="refusedDesc"></span> <a id="refusedLink" href="#" style="color:var(--blue)"></a></p>
+    </div>
+  </div>
   <div id="apBanner" style="display:none;background:rgba(56,189,248,0.15);border:1px solid var(--blue);border-radius:10px;padding:12px 16px;font-size:0.9rem;align-items:center;gap:12px">
     <span style="font-size:1.5rem">📶</span>
     <div>
@@ -1067,6 +1074,15 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
         <button type="button" class="power-btn" id="btnSaveMqtt" style="padding:8px 16px;font-size:0.9rem" onclick="saveMqtt()">Save</button>
       </div>
     </div>
+    <div class="card" style="gap:12px;margin-top:16px" id="accessCard">
+      <h3 id="lblAccessTitle"></h3>
+      <p id="lblAccessDesc" style="font-size:0.85rem;color:var(--text-dim);margin:0"></p>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:0.8rem;color:var(--text-dim)"><span id="lblAccessHosts"></span>
+        <textarea class="input-text" id="accessHosts" rows="3" spellcheck="false" autocomplete="off" autocapitalize="off" style="font-family:monospace;font-size:0.85rem;resize:vertical" placeholder="open-firenet.lan"></textarea></label>
+      <div style="display:flex;justify-content:flex-end">
+        <button type="button" class="power-btn" id="btnSaveAccess" style="padding:8px 16px;font-size:0.9rem" onclick="saveAccess()"></button>
+      </div>
+    </div>
     <div class="card" style="gap:12px;margin-top:16px">
       <h3 id="lblBridgeRestart"></h3>
       <p id="lblBridgeRestartDesc" style="font-size:0.85rem;color:var(--text-dim);margin:0"></p>
@@ -1286,6 +1302,14 @@ const I18N = {
     mqttSave: "Enregistrer",
     mqttSaving: "Enregistrement…",
     mqttSaved: "Enregistré ✓",
+    refusedTitle: "La clé ne répond pas sous ce nom",
+    refusedDesc: "Pour votre sécurité, elle n'accepte que son adresse IP et open-firenet.local. Ouvrez-la par son adresse, puis ajoutez « {host} » dans l'onglet Clé, section Accès :",
+    accessTitle: "Accès à la page",
+    accessDesc: "La clé répond à son adresse IP et à open-firenet.local. Si vous l'ouvrez sous un autre nom, par exemple celui que lui donne votre box, ajoutez-le ici. Elle ne répond jamais à une page d'un autre site web.",
+    accessHosts: "Noms supplémentaires (un par ligne, 8 au plus)",
+    accessSave: "Enregistrer",
+    accessSaved: "Enregistré ✓",
+    accessError: "Échec de l'enregistrement",
     mqttSaveFailed: "Non enregistré",
     mqttStatus: { "disabled": "Désactivé", "connected": "Connecté", "connecting": "Connexion…", "waiting for Wi-Fi": "En attente du Wi-Fi", "broker unreachable": "Broker injoignable", "refused: wrong user or password": "Refusé : utilisateur ou mot de passe incorrect", "refused by the broker": "Refusé par le broker", "no answer from the broker": "Le broker ne répond pas", "connection lost": "Connexion perdue", "certificate not trusted": "Certificat non reconnu", "secure connection failed": "Échec de la connexion chiffrée" },
     netModePrefix: "Mode : ",
@@ -1544,6 +1568,14 @@ const I18N = {
     mqttSave: "Save",
     mqttSaving: "Saving…",
     mqttSaved: "Saved ✓",
+    refusedTitle: "The bridge does not answer under this name",
+    refusedDesc: "For your safety it only accepts its IP address and open-firenet.local. Open it by its address, then add \"{host}\" in the Bridge tab, section Access:",
+    accessTitle: "Access to the page",
+    accessDesc: "The bridge answers at its IP address and at open-firenet.local. If you open it under another name, for example the one your router gives it, add it here. It never answers a page of another website.",
+    accessHosts: "Extra names (one per line, 8 at most)",
+    accessSave: "Save",
+    accessSaved: "Saved ✓",
+    accessError: "Could not save",
     mqttSaveFailed: "Not saved",
     mqttStatus: { "disabled": "Disabled", "connected": "Connected", "connecting": "Connecting…", "waiting for Wi-Fi": "Waiting for Wi-Fi", "broker unreachable": "Broker unreachable", "refused: wrong user or password": "Refused: wrong user or password", "refused by the broker": "Refused by the broker", "no answer from the broker": "No answer from the broker", "connection lost": "Connection lost", "certificate not trusted": "Certificate not trusted", "secure connection failed": "Secure connection failed" },
     netModePrefix: "Mode: ",
@@ -1810,6 +1842,14 @@ const I18N = {
     "mqttSave": "Salva",
     "mqttSaving": "Salvataggio…",
     "mqttSaved": "Salvato ✓",
+    "refusedTitle": "Il bridge non risponde con questo nome",
+    "refusedDesc": "Per la tua sicurezza accetta solo il suo indirizzo IP e open-firenet.local. Aprilo con il suo indirizzo, poi aggiungi «{host}» nella scheda Bridge, sezione Accesso:",
+    "accessTitle": "Accesso alla pagina",
+    "accessDesc": "Il bridge risponde al suo indirizzo IP e a open-firenet.local. Se lo apri con un altro nome, per esempio quello assegnato dal tuo router, aggiungilo qui. Non risponde mai a una pagina di un altro sito web.",
+    "accessHosts": "Nomi aggiuntivi (uno per riga, al massimo 8)",
+    "accessSave": "Salva",
+    "accessSaved": "Salvato ✓",
+    "accessError": "Salvataggio non riuscito",
     "mqttSaveFailed": "Non salvato",
     "mqttStatus": {
       "disabled": "Disabilitato",
@@ -2124,6 +2164,14 @@ const I18N = {
     mqttSave: "Speichern",
     mqttSaving: "Speichern…",
     mqttSaved: "Gespeichert ✓",
+    refusedTitle: "Der Stick antwortet nicht unter diesem Namen",
+    refusedDesc: "Zu Ihrer Sicherheit akzeptiert er nur seine IP-Adresse und open-firenet.local. Öffnen Sie ihn über seine Adresse und fügen Sie dann „{host}“ im Tab Stick, Abschnitt Zugriff, hinzu:",
+    accessTitle: "Zugriff auf die Seite",
+    accessDesc: "Der Stick antwortet unter seiner IP-Adresse und unter open-firenet.local. Wenn Sie ihn unter einem anderen Namen öffnen, zum Beispiel dem von Ihrem Router vergebenen, tragen Sie diesen hier ein. Einer Seite einer anderen Website antwortet er nie.",
+    accessHosts: "Zusätzliche Namen (einer pro Zeile, höchstens 8)",
+    accessSave: "Speichern",
+    accessSaved: "Gespeichert ✓",
+    accessError: "Speichern fehlgeschlagen",
     mqttSaveFailed: "Nicht gespeichert",
     mqttStatus: { "disabled": "Deaktiviert", "connected": "Verbunden", "connecting": "Verbinde…", "waiting for Wi-Fi": "Warte auf WLAN", "broker unreachable": "Broker nicht erreichbar", "refused: wrong user or password": "Abgelehnt: Benutzer oder Passwort falsch", "refused by the broker": "Vom Broker abgelehnt", "no answer from the broker": "Keine Antwort vom Broker", "connection lost": "Verbindung verloren", "certificate not trusted": "Zertifikat nicht vertrauenswürdig", "secure connection failed": "Verschlüsselte Verbindung fehlgeschlagen" },
     netModePrefix: "Modus: ",
@@ -2323,6 +2371,11 @@ function applyLang() {
   document.getElementById('pageBtnDiag').textContent = t.pageDiag;
   document.getElementById('lblDiagLink').textContent = t.diagLink;
   document.getElementById('lblDiagHealth').textContent = t.diagHealth;
+  document.getElementById('lblAccessTitle').textContent = t.accessTitle;
+  document.getElementById('lblAccessDesc').textContent = t.accessDesc;
+  document.getElementById('lblAccessHosts').textContent = t.accessHosts;
+  document.getElementById('btnSaveAccess').textContent = t.accessSave;
+  if (lastRefusal) showRefused(lastRefusal);
   document.getElementById('btnDiagFile').textContent = t.diagFile;
   document.getElementById('lblDiagFileHint').textContent = t.diagFileHint;
   renderHealth(lastHealthState);
@@ -2564,6 +2617,45 @@ function mqttSaveFeedback(key, color) {
   btn.disabled = key === 'mqttSaving';
   if (key !== 'mqttSave' && key !== 'mqttSaving') _mqttSaveTimer = setTimeout(() => mqttSaveFeedback('mqttSave'), 2500);
 }
+// Access section of the Bridge tab: the domains under which the bridge accepts to answer, besides its IP address
+// and local names (see firenet_web_guard.h).
+async function loadAccess() {
+  try {
+    const r = await fetch('/api/access');
+    if (!r.ok) return;
+    const a = await r.json();
+    const box = document.getElementById('accessHosts');
+    if (document.activeElement !== box) box.value = (a.extra_hosts || []).join('\n');
+  } catch (e) { /* the page keeps working without it */ }
+}
+let _accessSaveTimer = null;
+async function saveAccess() {
+  const t = I18N[curLang] || I18N.en, btn = document.getElementById('btnSaveAccess');
+  let ok = false;
+  try {
+    const r = await fetch('/api/access', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                          body: JSON.stringify({extra_hosts: document.getElementById('accessHosts').value})});
+    ok = r.ok;
+    if (ok) document.getElementById('accessHosts').value = ((await r.json()).extra_hosts || []).join('\n');
+  } catch (e) { ok = false; }
+  clearTimeout(_accessSaveTimer);
+  btn.textContent = ok ? t.accessSaved : t.accessError;
+  btn.style.background = ok ? 'var(--green)' : 'var(--amber)';
+  _accessSaveTimer = setTimeout(() => { btn.textContent = (I18N[curLang] || I18N.en).accessSave; btn.style.background = ''; }, 2500);
+}
+// The API refused this page because of the name it was opened under: say so, with the address that always works.
+let lastRefusal = null;
+function showRefused(r) {
+  lastRefusal = r;
+  const t = I18N[curLang] || I18N.en;
+  document.getElementById('refusedTitle').textContent = t.refusedTitle;
+  document.getElementById('refusedDesc').textContent = t.refusedDesc.replace('{host}', r.host || location.hostname);
+  const link = document.getElementById('refusedLink');
+  link.textContent = r.ip ? 'http://' + r.ip : '';
+  link.href = r.ip ? 'http://' + r.ip + '/#bridge' : '#';
+  document.getElementById('refusedBanner').style.display = 'flex';
+}
+
 async function saveMqtt() {
   const body = {
     enabled: document.getElementById('mqttEnabled').checked,
@@ -2607,6 +2699,7 @@ document.getElementById('mqttEnabled').addEventListener('change', syncMqttDiscov
 document.getElementById('mqttTls').addEventListener('change', () => syncMqttTls(true));
 
 loadMqtt(true);
+loadAccess();
 setInterval(() => { if (currentPage() === 'bridge') loadMqtt(false); }, 3000);
 
 let _txGapTimer = null;
@@ -2693,6 +2786,11 @@ function buildDiagFile(parts) {
   return out.join('\n') + '\n';
 }
 // --- diagnostic file (end) ---
+
+// Text coming from outside the page (Wi-Fi names seen around, values from the stove) put into HTML.
+function escHtml(v) {
+  return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 
 async function downloadDiagFile() {
   const get = async (url, asText) => {
@@ -3169,7 +3267,7 @@ async function scanWifi() {
       data.sort((a,b) => b.rssi - a.rssi);
       data.forEach(net => {
         let stars = net.rssi > -60 ? '🟢' : (net.rssi > -75 ? '🟡' : '🔴');
-        h += '<option value="' + encodeURIComponent(net.ssid) + '">' + stars + ' ' + net.ssid + ' (' + net.rssi + ' dBm)</option>';
+        h += '<option value="' + encodeURIComponent(net.ssid) + '">' + stars + ' ' + escHtml(net.ssid) + ' (' + escHtml(net.rssi) + ' dBm)</option>';
       });
       sel.innerHTML = h;
     }
@@ -3254,7 +3352,7 @@ function renderSensors(sObj, filterText) {
       const mFallback = ((I18N[curLang] || I18N.en).modelFallback + ' ') + v;
       v = mNames[v] || mFallback;
     }
-    h += '<tr><td>' + label + '</td><td style="color:var(--text-dim)">' + k + '</td><td>' + v + '</td></tr>';
+    h += '<tr><td>' + escHtml(label) + '</td><td style="color:var(--text-dim)">' + escHtml(k) + '</td><td>' + escHtml(v) + '</td></tr>';
   }
   tb.innerHTML = h;
 }
@@ -3268,6 +3366,7 @@ async function tick() {
   const bcpLanguageTag = t.bcpLanguageTag || 'en-US';
   try {
     const res = await fetch('/api/state');
+    if (res.status === 403) { showRefused(await res.json()); return; }
     const s = await res.json();
     lastState = s;
 

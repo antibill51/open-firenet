@@ -1,5 +1,15 @@
 # Changelog
 
+## Non publié
+
+### Changes
+- The web API now answers only the bridge's own page and programs on your network (Home Assistant, the installer, scripts). A page of another website opened in a browser on your network can no longer read the bridge's state or send it commands. Nothing changes for normal use. **If you open the bridge, or have set up Home Assistant, with a name given by your router (for example `open-firenet.lan` or `open-firenet.fritz.box`) or a domain of your own:** the bridge now only answers at its IP address and at `open-firenet.local`. The page tells you so and gives the address to use; add your name once in the Bridge tab, new section "Access to the page", and it works again. (#77)
+- `/api/restart` only accepts POST (the web page already used it). (#77)
+- Web page: the names of the Wi-Fi networks found around are shown as plain text, whatever characters they contain. (#77)
+
+### Fixes
+- A Wi-Fi network whose name contains a quote or a backslash, yours or a neighbour's, no longer breaks the page or the list of networks. (#77)
+
 ## v3.7.0 (2026-10-08)
 
 ### Features

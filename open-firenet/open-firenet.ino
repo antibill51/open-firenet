@@ -25,6 +25,7 @@
 #include "esp_wifi.h"  // connexion STA robuste (méthode open-firenet, coexistence USB)
 #include "firenet_link.h"
 #include "firenet_api.h"
+#include "firenet_web_guard.h"
 #include "firenet_mqtt.h"
 #include <deque>
 #include "mqtt_client.h"   // esp-mqtt, Espressif's MQTT client shipped with the ESP32 core
@@ -375,7 +376,7 @@ static String jsonState() {
     "},",
     (WiFi.getMode()==WIFI_AP?WiFi.softAPIP():WiFi.localIP()).toString().c_str(),
     WiFi.macAddress().c_str(),
-    WiFi.SSID().c_str(),
+    jsonEscape(WiFi.SSID()).c_str(),   // a network name may contain quotes
     WiFi.RSSI(),
     millis() / 1000UL,
     ESP.getFreeHeap(),
@@ -423,7 +424,7 @@ static String jsonState() {
   for (auto& kv : m.status) {
     if (!first) j += ","; first = false;
     String val = (kv.first == "wpa2" && !kv.second.empty() && kv.second != "0") ? "********" : String(kv.second.c_str());
-    j += "\"" + String(kv.first.c_str()) + "\":\"" + val + "\"";
+    j += "\"" + jsonEscape(String(kv.first.c_str())) + "\":\"" + jsonEscape(val) + "\"";
   }
   j += "},";
 
@@ -439,9 +440,8 @@ static String jsonState() {
   return j;
 }
 
-static void handleState()   { sendCors(); web.send(200, "application/json", jsonState()); }
+static void handleState()   { web.send(200, "application/json", jsonState()); }
 static void handleVersion() {
-  sendCors();
   char buf[220];
   snprintf(buf, sizeof(buf),
     "{\"app\":\"Open Firenet\",\"version\":\"" OPENFIRENET_VERSION "\",\"build_date\":\"%s\",\"build_time\":\"%s\",\"target\":\"ESP32-S3\"}",
@@ -458,7 +458,6 @@ static void handleRoot() {
 // GET/POST /api/txgap : délai entre trames envoyées au poêle (ms), borné à 50..600.
 // Pris en compte dès la prochaine évaluation de la file d'émission ; conservé en NVS.
 static void handleTxGap() {
-  sendCors();
   if (web.method() == HTTP_OPTIONS) { web.send(204); return; }
   if (web.method() == HTTP_POST) {
     long ms = 0;
@@ -539,7 +538,6 @@ static String jsonHealth(bool forMqtt) {
 }
 
 static void handleRestart() {
-  sendCors();
   web.send(200, "application/json", "{\"ok\":true,\"reboot\":true}");
   delay(300); restartBecause(NOTE_USER);
 }
@@ -681,7 +679,6 @@ static void handleCaptiveRedirect() {
 
 // GET /api/scan -> scanne les réseaux 2.4 GHz et renvoie un tableau JSON
 static void handleScan() {
-  sendCors();
   int n = WiFi.scanComplete();
   if (n == -2) {
     WiFi.scanNetworks(true);
@@ -705,7 +702,7 @@ static void handleScan() {
     seen.push_back(ssid);
 
     if (count > 0) json += ",";
-    json += "{\"ssid\":\"" + ssid + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+    json += "{\"ssid\":\"" + jsonEscape(ssid) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
     count++;
   }
   json += "]";
@@ -780,10 +777,49 @@ static void onUsbCdcLineCoding(void* arg, esp_event_base_t base, int32_t id, voi
   logEntry("usb", b);
 }
 
-static void sendCors() {
-  web.sendHeader("Access-Control-Allow-Origin", "*");
-  web.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  web.sendHeader("Access-Control-Allow-Headers", "*");
+// The API answers its own page and clients that are not browsers; a page of another website gets a 403 before
+// any handler runs (see firenet_web_guard.h, issue #77). No Access-Control-Allow-Origin is sent any more.
+// Domains added by the owner in the Bridge tab (section Access), kept in the settings.
+static std::vector<std::string> g_extraHosts;
+static void loadExtraHosts() {
+  prefs.begin("firenet", true);
+  g_extraHosts = firenet::webguard::parseExtraHosts(prefs.getString("web_hosts", "").c_str());
+  prefs.end();
+}
+
+static bool webGuard(WebServer& server, Middleware::Callback next) {
+  std::string path = server.uri().c_str();
+  std::string host = server.hostHeader().c_str();
+  std::string origin = server.header("Origin").c_str();
+  if (firenet::webguard::requestAllowed(path, host, origin, g_extraHosts)) return next();
+  DBG.printf("[web] refused %s (Host \"%s\", Origin \"%s\")\n", path.c_str(), host.c_str(), origin.c_str());
+  std::string ip = (WiFi.getMode() == WIFI_AP ? WiFi.softAPIP() : WiFi.localIP()).toString().c_str();
+  server.send(403, "application/json", firenet::webguard::refusalJson(host, origin, ip, g_extraHosts).c_str());
+  return true;
+}
+
+// GET /api/access: the domains added by the owner, and the name this request was addressed to.
+// POST /api/access: extra_hosts (JSON or form), free text with one domain per line; an empty text removes them all.
+static void handleAccess() {
+  if (web.method() == HTTP_POST) {
+    std::vector<std::pair<std::string, std::string>> kv;
+    firenet::jsonPairs(web.hasArg("plain") ? web.arg("plain").c_str() : "", kv);
+    for (int i = 0; i < web.args(); i++) if (web.argName(i) != "plain") kv.push_back({web.argName(i).c_str(), web.arg(i).c_str()});
+    for (const auto& p : kv) if (p.first == "extra_hosts") {
+      String text = p.second.c_str();
+      text.replace("\\n", "\n"); text.replace("\\r", "");          // JSON carries the line breaks as "\n"
+      auto hosts = firenet::webguard::parseExtraHosts(text.c_str());
+      prefs.begin("firenet", false);
+      prefs.putString("web_hosts", firenet::webguard::joinExtraHosts(hosts).c_str());
+      prefs.end();
+      g_extraHosts = hosts;
+    }
+  }
+  String j = "{\"ok\":true,\"extra_hosts\":[";
+  for (size_t i = 0; i < g_extraHosts.size(); i++) j += String(i ? "," : "") + "\"" + g_extraHosts[i].c_str() + "\"";
+  j += "],\"max_extra_hosts\":" + String((unsigned)firenet::webguard::MAX_EXTRA_HOSTS);
+  j += ",\"host\":\"" + jsonEscape(String(firenet::webguard::hostName(web.hostHeader().c_str()).c_str())) + "\"}";
+  web.send(200, "application/json", j);
 }
 
 // Applies commanded name/value pairs (any name accepted by firenet_api.h) to the stove; shared by the REST API and
@@ -831,7 +867,6 @@ static AppliedControls applyControlPairs(const std::vector<std::pair<std::string
 
 // GET /api/controls & POST /api/controls (V2 JSON + legacy compat)
 static void handleApiControls() {
-  sendCors();
   if (web.method() == HTTP_OPTIONS) { web.send(204); return; }
   const auto& m = g_link->model();
 
@@ -1252,7 +1287,6 @@ static String jsonEscape(const String& in) {
 // GET /api/mqtt: settings (the password is never returned) and connection status.
 // POST /api/mqtt: enabled, host, port, user, password, base_topic, discovery, tls, ca_certificate (JSON or form). A field left out keeps its value.
 static void handleMqtt() {
-  sendCors();
   if (web.method() == HTTP_OPTIONS) { web.send(204); return; }
   if (web.method() == HTTP_POST) {
     std::vector<std::pair<std::string, std::string>> kv;
@@ -1309,7 +1343,6 @@ static void handleMqtt() {
 
 // GET & POST /api/schedule
 static void handleApiSchedule() {
-  sendCors();
   if (web.method() == HTTP_OPTIONS) { web.send(204); return; }
   const auto& m = g_link->model();
 
@@ -1345,7 +1378,6 @@ static void handleApiSchedule() {
 
 // GET /log (compatibilité open-firenet) — envoyé par morceaux depuis le tampon circulaire.
 static void handleLog() {
-  sendCors();
   uint64_t total, pos;
   {
     std::lock_guard<std::mutex> lk(g_logMx);
@@ -1480,16 +1512,16 @@ void setup() {
     DBG.println("[mdns] http://open-firenet.local");
   }
 
-  web.enableCORS(true);
   web.on("/", handleRoot);
   web.on("/api/version", handleVersion);
   web.on("/api/state", handleState);
   web.on("/api/control", handleApiControls);
   web.on("/api/controls", handleApiControls);
   web.on("/api/schedule", handleApiSchedule);
-  web.on("/api/restart", handleRestart);
+  web.on("/api/restart", HTTP_POST, handleRestart);
   web.on("/api/txgap", handleTxGap);
   web.on("/api/mqtt", handleMqtt);
+  web.on("/api/access", handleAccess);
   web.on("/api/wifi", HTTP_POST, handleWifi);
   web.on("/api/forget", HTTP_POST, handleForget);
   web.on("/api/scan", handleScan);
@@ -1514,6 +1546,10 @@ void setup() {
   web.on("/log", handleLog);
 
   mqttLoadSettings();
+  static const char* WEB_HEADERS[] = {"Origin"};
+  web.collectHeaders(WEB_HEADERS, 1);
+  loadExtraHosts();
+  web.addMiddleware(webGuard);
   web.begin();
   DBG.println("[web] démarré (avec portail captif + compatibilité open-firenet)");
 }

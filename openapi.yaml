@@ -14,6 +14,13 @@ info:
     `GET /api/controls` also returns the settings under the stove's own names and units (`onOff`, `tempRoomTarget`
     in tenths of a degree...). New code should not rely on them.
 
+    **Who can call it.** Programs on your network (Home Assistant, scripts, `curl`) and the bridge's own web page.
+    A page of another website opened in a browser cannot: the bridge sends no cross-origin permission and answers
+    403 to a request that names another page as its origin, or that was addressed to a name other than its IP
+    address, a name without a dot, a `.local` name, or a domain you added in the Bridge tab, section Access
+    (`/api/access`). The 403 is JSON: `refused` tells which check refused (`host` or `origin`) and `ip` gives the
+    address that always works.
+
     **Before the stove is linked.** Until the stove has answered, `version_ack` is `false`, the stove model and
     firmware version are `null`, and the other values are defaults, not measurements.
   license:
@@ -248,17 +255,41 @@ paths:
                 type: object
                 properties:
                   ok: { type: boolean }
-  /api/restart:
+  /api/access:
     get:
       tags: [Bridge]
-      summary: Restart the bridge
-      description: Any method is accepted; the web page uses POST. The stove keeps running; the link comes back in about a minute.
+      summary: Domains under which the bridge accepts to answer
+      description: Besides its IP address and `open-firenet.local`, see "Who can call it" above.
       responses:
         "200":
-          $ref: "#/components/responses/Restarting"
+          description: The added domains
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Access" }
+    post:
+      tags: [Bridge]
+      summary: Set the added domains
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                extra_hosts:
+                  type: string
+                  description: "One domain per line (commas and spaces also separate them); an empty text removes them all. An entry needs at least one dot inside (`example.org`, not `org`), and also covers the names under it. At most 8 entries of 63 characters; entries that do not fit these rules are dropped."
+      responses:
+        "200":
+          description: The domains as saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Access" }
+  /api/restart:
     post:
       tags: [Bridge]
       summary: Restart the bridge
+      description: The stove keeps running; the link comes back in about a minute.
       responses:
         "200":
           $ref: "#/components/responses/Restarting"
@@ -291,6 +322,16 @@ components:
       type: string
       enum: [manual, auto, comfort]
       description: "`manual`: fixed power. `auto`: follows the weekly schedule. `comfort`: follows the room temperature."
+    Access:
+      type: object
+      properties:
+        ok: { type: boolean }
+        extra_hosts:
+          type: array
+          items: { type: string }
+          description: Domains added by the owner
+        max_extra_hosts: { type: integer }
+        host: { type: string, description: Name this request was addressed to }
     Health:
       type: object
       description: How the bridge itself is doing. The counters live in memory and restart from zero at each boot. Also published over MQTT under `<base>/health/<name>`, except `stove_last_frame_seconds`.
