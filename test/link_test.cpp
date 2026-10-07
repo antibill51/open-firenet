@@ -653,7 +653,7 @@ int main(){
     CH("V1 applyControls sends the five-field frame", w.find("GET_CONTROLS=1; revision=") != std::string::npos && w.find("onOff=1; ") != std::string::npos);
     CH("V1 applyControls never sends the DOMO-ordered extended frame", w.find("bakeTarget=") == std::string::npos && w.find("frostProtectionActive=") == std::string::npos);
 
-    // Same for a stove that answered the 2.28 probe, with every control registered (controls_pos.size() >= 29).
+    // A stove that answered the 2.28 probe, with every control posted: the extended frame, in the 2.29 order.
     {
       std::string w28; uint32_t c28=0;
       DongleLink v28([&](const uint8_t*d,size_t n){ w28.append((const char*)d,n); }, [&](){ return c28; });
@@ -669,9 +669,33 @@ int main(){
       w28.clear();
       v28.applyControls({{"onOff",1}});
       for(int i=0;i<16 && !v28.txIdle();i++){ c28+=DongleLink::TX_GAP_MS; v28.poll(); }
-      CH("2.28 applyControls sends the five-field frame even with all controls known",
-         v28.model().controls_pos.size() >= 29 && w28.find("GET_CONTROLS=1; revision=") != std::string::npos &&
-         w28.find("roomTarget=210; ") != std::string::npos && w28.find("bakeTarget=") == std::string::npos && w28.find("heatTimeMon1=") == std::string::npos);
+      CH("2.28 applyControls sends the extended frame once all controls are known, as 2.26/2.27",
+         v28.model().controls_pos.size() >= 32 && w28.find("GET_CONTROLS=1; revision=") != std::string::npos &&
+         w28.find("onOff=1; ") != std::string::npos && w28.find("roomTarget=210; ") != std::string::npos &&
+         w28.find("heatTimeMon1=0; ") != std::string::npos && w28.find("roomTempOffset=0; ") != std::string::npos);
+      // A schedule change travels in that same frame.
+      w28.clear();
+      v28.applyControls({{"heatTimeMon1",6000800}});
+      for(int i=0;i<16 && !v28.txIdle();i++){ c28+=DongleLink::TX_GAP_MS; v28.poll(); }
+      CH("2.28 schedule change sends the extended frame, other values kept from the stove",
+         v28.model().controls_pos.size() >= 32 && w28.find("heatTimeMon1=6000800; heatTimeMon2=0; ") != std::string::npos &&
+         w28.find("onOff=1; ") != std::string::npos && w28.find("roomTarget=210; ") != std::string::npos &&
+         w28.find("roomTempOffset=0; ") != std::string::npos);
+    }
+    // A 2.28 that has not posted its controls yet keeps the five-field frame, even for a schedule change.
+    {
+      std::string w28; uint32_t c28=0;
+      DongleLink v28([&](const uint8_t*d,size_t n){ w28.append((const char*)d,n); }, [&](){ return c28; });
+      v28.debugSetStage(DongleLink::DETECT_V28);
+      v28.poll();
+      for (char ch : std::string("GET_CDCDEVICE_VERSION_FINISHED")) v28.onByte(ch);
+      c28 += 60; v28.poll();
+      for(int i=0;i<16 && !v28.txIdle();i++){ c28+=DongleLink::TX_GAP_MS; v28.poll(); }
+      w28.clear();
+      v28.applyControls({{"heatTimeMon1",6000800}});
+      for(int i=0;i<16 && !v28.txIdle();i++){ c28+=DongleLink::TX_GAP_MS; v28.poll(); }
+      CH("2.28 schedule change before the stove posted its controls: five-field frame only",
+         w28.find("GET_CONTROLS=1; revision=") != std::string::npos && w28.find("heatTimeMon1=") == std::string::npos);
     }
 
     std::string wd; uint32_t cd=0;

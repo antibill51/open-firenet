@@ -1,5 +1,10 @@
 # Changelog
 
+## Non publié
+
+### Fixes
+- Firmware 2.28: changes of the heating schedule, frost protection, eco mode and room sensor offset are now sent to the stove. The page showed them as applied, but they never reached it. (#4)
+
 ## v3.6.1 (2026-10-07)
 
 ### Fixes
