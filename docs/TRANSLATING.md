@@ -10,7 +10,7 @@ separate pull requests.
 |---|---|---|
 | The web page of the bridge | this repository, `open-firenet/web/index.html` | about 250 texts |
 | The Home Assistant integration | [open-firenet-ha](https://github.com/openfirenet/open-firenet-ha), `custom_components/open_firenet/translations/` | about 60 texts |
-| The installer | [open-firenet-installer](https://github.com/openfirenet/open-firenet-installer), `src/i18n.js` | about 120 texts |
+| The installer | [open-firenet-installer](https://github.com/openfirenet/open-firenet-installer), `src/i18n.js` and `src-tauri/src/cli_i18n.rs` | about 120 + 150 texts |
 
 The documentation and the website are in English only for now.
 
@@ -78,8 +78,11 @@ values, on the right of the colons. Home Assistant uses the file by itself for u
 
 In [open-firenet-installer](https://github.com/openfirenet/open-firenet-installer), the texts of the application are in
 `src/i18n.js`, one block per language like the web page: copy the `en` block and translate it. The language menu is in
-`index.html`. The command line texts are in `src-tauri/src/cli_i18n.rs`; they can be left for later, the command line
-then stays in English.
+`index.html`.
+
+The progress and error messages of the flashing, download and scan steps, and all the texts of the command line, are in
+`src-tauri/src/cli_i18n.rs`: add your language to the `CliLang` list at the top, and the compiler then points at every
+text that lacks it. This part can be left for later: those messages are then shown in English in the window.
 
 ## Questions
 
