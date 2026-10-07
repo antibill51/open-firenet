@@ -1,5 +1,11 @@
 # Changelog
 
+## Non publié
+
+### Fixes
+- Firmware 2.28: the stove no longer shows "FIRENET UPDATE" instead of linking. The bridge now announces its version in a single USB message; sent in two pieces, this stove recorded a wrong version and asked to update the stick. (#4)
+- Stove link: when the stove refuses a message after having accepted the bridge, the bridge no longer floods it with about 20 detection messages per second, and no longer sends it the detection messages meant for other firmware versions. (#4)
+
 ## v3.6.0 (2026-10-07)
 
 ### Features

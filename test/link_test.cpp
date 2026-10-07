@@ -731,6 +731,44 @@ int main(){
        fr.find("frostProtectionActive=1; frostProtectionTemp=50; ") != std::string::npos && fr.find("setBackTemp=160; ") != std::string::npos);
   }
 
+  // Refusals after the ack (SONO 2.28, issue #4): the bridge keeps to the family that was acknowledged and answers a
+  // stream of "0" at the retry pace, instead of 20 probes per second cycling through every family.
+  {
+    std::string w; uint32_t c = 1000;
+    DongleLink l([&](const uint8_t* d, size_t n) { w.append((const char*)d, n); }, [&]() { return c; });
+    auto count = [&](const char* needle) { size_t n = 0, p = 0; while ((p = w.find(needle, p)) != std::string::npos) { n++; p++; } return n; };
+    l.debugSetStage(DongleLink::DETECT_V28);
+    l.poll();                                                   // first probe, 2.28 family
+    for (char ch : std::string("GET_CDCDEVICE_VERSION_FINISHED")) l.onByte(ch);
+    c += 60; l.poll();
+    CH("2.28 acknowledged", l.model().version_ack && l.model().version_profile == DongleLink::DETECT_V28);
+    for (int i = 0; i < 10; i++) { c += DongleLink::TX_GAP_MS; l.poll(); }
+    // the stove now refuses everything: one "0" every 50 ms for 10 s
+    w.clear();
+    for (int i = 0; i < 200; i++) {
+      l.onByte('0'); c += 50; l.poll();                         // 50 ms of silence closes the frame
+    }
+    size_t v28 = count("GET_CDCDEVICE_VERSION=0; BL=101; APP=112");
+    CH("link dropped on the first refusal", !l.model().version_ack);
+    CH("no probe of another family is sent to a stove known as 2.28",
+       count("GET_CDCDEVICE3_VERSION") == 0 && count("GET_WIFI_VERSION_GET_CDCDEVICE_VERSION") == 0);
+    if (!(v28 >= 8 && v28 <= 14)) std::cout << "probes sent in 10 s: " << v28 << "\n";
+    CH("about one probe per second during 10 s of refusals, not one per refusal", v28 >= 8 && v28 <= 14);
+    // a SYN byte (stove restart) is still answered at once
+    w.clear(); c += 20;
+    l.onByte(0x16); l.poll();
+    CH("a SYN byte is answered immediately", count("GET_CDCDEVICE_VERSION=0; BL=101; APP=112") == 1);
+  }
+  // Before any ack, the families are still cycled through (first detection unchanged).
+  {
+    std::string w; uint32_t c = 1000;
+    DongleLink l([&](const uint8_t* d, size_t n) { w.append((const char*)d, n); }, [&]() { return c; });
+    for (int i = 0; i < 100; i++) { c += 100; l.poll(); }       // 10 s without any answer
+    CH("first detection cycles through the three families",
+       w.find("GET_CDCDEVICE3_VERSION") != std::string::npos && w.find("GET_CDCDEVICE_VERSION=0; BL=101; APP=112") != std::string::npos &&
+       w.find("GET_WIFI_VERSION_GET_CDCDEVICE_VERSION") != std::string::npos);
+  }
+
   std::cout << ok << " ok, " << ko << " failures\n";
   return ko ? 1 : 0;
 }

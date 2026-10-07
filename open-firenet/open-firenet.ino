@@ -107,10 +107,22 @@ firenet::DongleLink* g_link = nullptr;
 static uint32_t lastPoll = 0;
 
 static void txToStove(const uint8_t* d, size_t n) {
-  // Le poêle (hôte USB Atmel AVR32) limite les transactions USB pleines à 4 (0x8004e568)
-  // et attend des "short packets" (<64 octets, bit SHORTSIGN dans UPSTA0).
-  // Le firmware officiel découpait ainsi chaque élément et flashait immédiatement (write+flush).
-  // On découpe en paquets de 32 octets maximum (< 64), chacun émis en short packet.
+  // The stove (USB host, Atmel AVR32) expects short packets (< 64 bytes): frames are cut into pieces of at most
+  // 32 bytes, each written and flushed at once, as the official stick did.
+  // Exception: a version frame that fits in one short packet is sent whole. Cut in two (32 + 27 bytes, 2 ms
+  // apart), a SONO 2.28 recorded another version than the one announced (APP=1, REV=0 instead of 112 / 13301:
+  // read in its status reply) and then offered a stick update ("FIRENET UPDATE") as soon as it got our status;
+  // sent whole, it records 112 / 13301 and links normally (issue #4, logs of 2026-10-06). How the stove mixes
+  // the two pieces was not read in its code. A DOMO 2.29 records the right version either way (same day). The
+  // INDUO 2.26 / 2.27 frame (74 bytes) does not fit and stays cut as before.
+  if (n < 64 && n > 13 && memcmp(d, "GET_CDCDEVICE", 13) == 0 && memmem(d, n, "_VERSION=", 9) != nullptr) {
+    uint32_t start = millis();
+    while (tud_cdc_n_write_available(0) < n && (millis() - start) < 200) delay(1);
+    uint32_t w = tud_cdc_n_write(0, d, n);
+    tud_cdc_n_write_flush(0);
+    if (w != n) DBG.printf("[txToStove] ERR version frame: sent only %u/%u bytes!\n", (unsigned)w, (unsigned)n);
+    return;
+  }
   size_t off = 0;
   while (off < n) {
     size_t chunk = min((size_t)32, n - off);
