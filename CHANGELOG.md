@@ -4,6 +4,7 @@
 
 ### Features
 - Diagnostics tab: a "Bridge health" card shows how the bridge itself is doing: cause of the last restart, free memory and its lowest value, chip temperature, Wi-Fi signal and disconnections, time since the last message from the stove, and how many times the link with the stove was established and lost. The same values are in `/api/state` (`health`) and over MQTT (`<base>/health/...`), so Home Assistant can keep their history and raise alerts. (#74)
+- Diagnostics tab: a "Diagnostic file" button downloads a single file to attach to a report, with the bridge health, the link, every value and the exchange log. Its name carries the version and the date, and the Wi-Fi name and the MAC address are masked in it. (#74)
 
 ## v3.6.1 (2026-10-07)
 
