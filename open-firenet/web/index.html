@@ -1079,6 +1079,14 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
   <!-- Page 3: diagnostics (link status, logs, every value, advanced settings) -->
   <div class="page" id="page-diagnostics">
     <div class="card">
+      <h3 id="lblDiagHealth"></h3>
+      <table id="healthTable"><tbody id="healthRows"></tbody></table>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:14px">
+        <button class="btn-lang" id="btnDiagFile" style="padding:6px 12px;font-size:0.85rem" onclick="downloadDiagFile()"></button>
+        <span id="lblDiagFileHint" style="font-size:0.8rem;color:var(--text-dim);flex:1;min-width:220px"></span>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
       <h3 id="lblDiagLink"></h3>
       <table id="linkTable">
         <tbody>
@@ -1088,7 +1096,6 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
           <tr><td id="lblCdcRev" style="color:var(--text-dim)">Révision poêle courante</td><td id="cdcRev">--</td></tr>
           <tr><td id="lblCdcIn" style="color:var(--text-dim)">Trames reçues poêle (IN)</td><td id="cdcIn">--</td></tr>
           <tr><td id="lblCdcOut" style="color:var(--text-dim)">Trames émises poêle (OUT)</td><td id="cdcOut">--</td></tr>
-          <tr><td id="lblUptime" style="color:var(--text-dim)">Temps d'activité (Uptime)</td><td id="dongleUptime">--</td></tr>
         </tbody>
       </table>
     </div>
@@ -1307,6 +1314,34 @@ const I18N = {
     cdcOut: "Trames émises poêle (OUT)",
     cdcSpeed: "Opérationnelle (Full Speed)",
     lblUptime: "Temps d'activité (Uptime)",
+    diagHealth: "État de la clé",
+    diagFile: "⬇ Fichier de diagnostic",
+    diagFileHint: "Un seul fichier à joindre à un signalement : état, liaison, toutes les valeurs et journal. Le nom du Wi-Fi et l'adresse MAC y sont masqués.",
+    healthRestart: "Dernier redémarrage",
+    healthMemory: "Mémoire libre",
+    healthMemoryMin: "minimum {v}",
+    healthTemp: "Température de la puce",
+    healthWifiDrops: "Déconnexions Wi-Fi",
+    healthLastFrame: "Dernière trame du poêle",
+    healthAgo: "il y a {v}",
+    healthNever: "jamais",
+    healthLink: "Liaison poêle : établie / perdue",
+    healthMqttDrops: "Déconnexions MQTT",
+    healthKb: "{v} ko",
+    restartReasons: {
+      power_on: "Mise sous tension",
+      brownout: "Alimentation insuffisante",
+      crash: "Plantage",
+      watchdog: "Blocage (chien de garde)",
+      reset_button: "Bouton reset",
+      usb: "Réinitialisation USB",
+      user: "Redémarrage demandé",
+      wifi_change: "Changement de Wi-Fi",
+      update: "Mise à jour",
+      stove_silent: "Plus de réponse du poêle (60 s)",
+      software: "Redémarrage logiciel",
+      unknown: "Inconnu"
+    },
     lblNetUptimePrefix: "Uptime : ",
     yes: "Oui",
     no: "Non",
@@ -1537,6 +1572,34 @@ const I18N = {
     cdcOut: "Stove outgoing frames (OUT)",
     cdcSpeed: "Operational (Full Speed)",
     lblUptime: "Dongle Uptime",
+    diagHealth: "Bridge health",
+    diagFile: "⬇ Diagnostic file",
+    diagFileHint: "One file to attach to a report: health, link, all values and log. The Wi-Fi name and the MAC address are masked in it.",
+    healthRestart: "Last restart",
+    healthMemory: "Free memory",
+    healthMemoryMin: "lowest {v}",
+    healthTemp: "Chip temperature",
+    healthWifiDrops: "Wi-Fi disconnections",
+    healthLastFrame: "Last frame from the stove",
+    healthAgo: "{v} ago",
+    healthNever: "never",
+    healthLink: "Stove link: established / lost",
+    healthMqttDrops: "MQTT disconnections",
+    healthKb: "{v} kB",
+    restartReasons: {
+      power_on: "Power on",
+      brownout: "Supply voltage too low",
+      crash: "Crash",
+      watchdog: "Freeze (watchdog)",
+      reset_button: "Reset button",
+      usb: "USB reset",
+      user: "Restart requested",
+      wifi_change: "Wi-Fi change",
+      update: "Update",
+      stove_silent: "No answer from the stove (60 s)",
+      software: "Software restart",
+      unknown: "Unknown"
+    },
     lblNetUptimePrefix: "Uptime: ",
     yes: "Yes",
     no: "No",
@@ -1787,6 +1850,34 @@ const I18N = {
     "cdcOut": "Frame inviati alla stufa (OUT)",
     "cdcSpeed": "Operativo (Full Speed)",
     "lblUptime": "Tempo di attività del dongle",
+    "diagHealth": "Stato del bridge",
+    "diagFile": "⬇ File di diagnostica",
+    "diagFileHint": "Un solo file da allegare a una segnalazione: stato, collegamento, tutti i valori e registro. Il nome del Wi-Fi e l'indirizzo MAC vi sono mascherati.",
+    "healthRestart": "Ultimo riavvio",
+    "healthMemory": "Memoria libera",
+    "healthMemoryMin": "minimo {v}",
+    "healthTemp": "Temperatura del chip",
+    "healthWifiDrops": "Disconnessioni Wi-Fi",
+    "healthLastFrame": "Ultimo messaggio dalla stufa",
+    "healthAgo": "{v} fa",
+    "healthNever": "mai",
+    "healthLink": "Collegamento stufa: stabilito / perso",
+    "healthMqttDrops": "Disconnessioni MQTT",
+    "healthKb": "{v} kB",
+    "restartReasons": {
+      "power_on": "Accensione",
+      "brownout": "Alimentazione insufficiente",
+      "crash": "Arresto anomalo",
+      "watchdog": "Blocco (watchdog)",
+      "reset_button": "Pulsante reset",
+      "usb": "Reset USB",
+      "user": "Riavvio richiesto",
+      "wifi_change": "Modifica del Wi-Fi",
+      "update": "Aggiornamento",
+      "stove_silent": "Nessuna risposta dalla stufa (60 s)",
+      "software": "Riavvio software",
+      "unknown": "Sconosciuto"
+    },
     "lblNetUptimePrefix": "Tempo di attività: ",
     "yes": "Sì",
     "no": "No",
@@ -2061,6 +2152,34 @@ const I18N = {
     cdcOut: "Ausgehende Rahmen (OUT)",
     cdcSpeed: "Betriebsbereit (Full Speed)",
     lblUptime: "Dongle Betriebszeit",
+    diagHealth: "Zustand des Sticks",
+    diagFile: "⬇ Diagnosedatei",
+    diagFileHint: "Eine einzige Datei für eine Meldung: Zustand, Verbindung, alle Werte und Protokoll. WLAN-Name und MAC-Adresse sind darin unkenntlich gemacht.",
+    healthRestart: "Letzter Neustart",
+    healthMemory: "Freier Speicher",
+    healthMemoryMin: "Minimum {v}",
+    healthTemp: "Chip-Temperatur",
+    healthWifiDrops: "WLAN-Verbindungsabbrüche",
+    healthLastFrame: "Letzte Nachricht vom Ofen",
+    healthAgo: "vor {v}",
+    healthNever: "nie",
+    healthLink: "Verbindung zum Ofen: aufgebaut / verloren",
+    healthMqttDrops: "MQTT-Verbindungsabbrüche",
+    healthKb: "{v} kB",
+    restartReasons: {
+      power_on: "Einschalten",
+      brownout: "Versorgungsspannung zu niedrig",
+      crash: "Absturz",
+      watchdog: "Hänger (Watchdog)",
+      reset_button: "Reset-Taste",
+      usb: "USB-Reset",
+      user: "Neustart angefordert",
+      wifi_change: "WLAN-Änderung",
+      update: "Update",
+      stove_silent: "Keine Antwort vom Ofen (60 s)",
+      software: "Software-Neustart",
+      unknown: "Unbekannt"
+    },
     lblNetUptimePrefix: "Betriebszeit: ",
     yes: "Ja",
     no: "Nein",
@@ -2203,6 +2322,10 @@ function applyLang() {
   document.getElementById('pageBtnBridgeLbl').textContent = t.pageBridge;
   document.getElementById('pageBtnDiag').textContent = t.pageDiag;
   document.getElementById('lblDiagLink').textContent = t.diagLink;
+  document.getElementById('lblDiagHealth').textContent = t.diagHealth;
+  document.getElementById('btnDiagFile').textContent = t.diagFile;
+  document.getElementById('lblDiagFileHint').textContent = t.diagFileHint;
+  renderHealth(lastHealthState);
   document.getElementById('lblDiagLogs').textContent = t.diagLogs;
   document.getElementById('lblDiagValues').textContent = t.diagValues;
   document.getElementById('lblDiagAdvanced').textContent = t.diagAdvanced;
@@ -2508,6 +2631,89 @@ async function setTxGap(ms) {
     document.getElementById('txGap').addEventListener('input', e => setTxGap(e.target.value));
   } catch (e) { /* ignoré */ }
 })();
+// --- diagnostic file (begin): the functions up to the end marker are also run by test/diag_file_test.mjs ---
+// The diagnostic file is meant to be attached to a public issue: the Wi-Fi name and the last three bytes of the
+// MAC address are masked. The Wi-Fi password is never part of what the bridge exposes.
+function diagMaskMac(mac) {
+  return /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i.test(mac || '') ? mac.slice(0, 8) + ':xx:xx:xx' : (mac || '');
+}
+function diagHex(text) {
+  return Array.from(new TextEncoder().encode(text)).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+// Log text: the stove status frames carry the Wi-Fi name alone on a line, as text or as hexadecimal.
+function diagMaskLog(log, ssid, mac) {
+  let out = log;
+  if (ssid) {
+    const esc = x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp('^(' + esc(ssid) + '|' + diagHex(ssid) + ')$', 'gm'), '<wifi name>');
+  }
+  if (mac) out = out.split(mac).join(diagMaskMac(mac)).split(mac.toLowerCase()).join(diagMaskMac(mac));
+  return out;
+}
+function diagMaskState(state) {
+  const s = JSON.parse(JSON.stringify(state || {}));
+  if (s.device) {
+    if (s.device.wifi_ssid) s.device.wifi_ssid = '<wifi name>';
+    if (s.device.mac) s.device.mac = diagMaskMac(s.device.mac);
+  }
+  if (s.status) {
+    if (s.status.ssid) s.status.ssid = '<wifi name>';
+    if (s.status.mac) s.status.mac = diagMaskMac(s.status.mac);
+  }
+  return s;
+}
+// `parts`: {when, lang, browser, state, mqtt, schedule, log}; missing parts are written as "(not available)".
+function buildDiagFile(parts) {
+  const raw = parts.state || {};
+  const ssid = (raw.device && raw.device.wifi_ssid) || '';
+  const mac = (raw.device && raw.device.mac) || '';
+  const s = diagMaskState(raw);
+  const dev = s.device || {}, h = s.health || {}, stove = s.stove || {};
+  const json = v => (v === undefined || v === null) ? '(not available)' : JSON.stringify(v, null, 1);
+  const line = (k, v) => k + ': ' + (v === undefined || v === null ? '-' : v);
+  const mqtt = parts.mqtt ? Object.assign({}, parts.mqtt, parts.mqtt.user ? {user: '<masked>'} : {}) : null;
+  const out = [];
+  out.push('Open Firenet diagnostic file');
+  out.push(line('Generated', parts.when + ' (browser clock)'));
+  out.push(line('Bridge firmware', dev.version));
+  out.push(line('Page language', parts.lang));
+  out.push(line('Browser', parts.browser));
+  out.push('Masked: Wi-Fi name, last three bytes of the MAC address, MQTT user. The Wi-Fi password is never included.');
+  out.push('', '===== BRIDGE HEALTH =====');
+  out.push(line('uptime_seconds', dev.uptime_seconds), line('free_heap', dev.free_heap), line('wifi_rssi', dev.wifi_rssi));
+  for (const k of Object.keys(h)) out.push(line(k, h[k]));
+  out.push('', '===== LINK WITH THE STOVE =====');
+  out.push(line('linked', s.version_ack), line('version_frame', s.version_frame), line('generation', s.generation));
+  out.push(line('usb', JSON.stringify(s.usb)), line('frames_in', s.frames_in), line('frames_out', s.frames_out), line('revision', s.revision));
+  out.push(line('stove model', stove.model_name), line('stove firmware', stove.mainboard_version), line('stove build', stove.firmware_build));
+  out.push('', '===== MQTT (/api/mqtt) =====', json(mqtt));
+  out.push('', '===== SCHEDULE (/api/schedule) =====', json(parts.schedule));
+  out.push('', '===== STATE (/api/state) =====', json(parts.state ? s : null));
+  out.push('', '===== LOG (/log) =====', parts.log === undefined || parts.log === null ? '(not available)' : diagMaskLog(parts.log, ssid, mac));
+  return out.join('\n') + '\n';
+}
+// --- diagnostic file (end) ---
+
+async function downloadDiagFile() {
+  const get = async (url, asText) => {
+    try { const r = await fetch(url); return asText ? await r.text() : await r.json(); } catch (e) { return null; }
+  };
+  const [state, mqtt, schedule, log] = [await get('/api/state'), await get('/api/mqtt'), await get('/api/schedule'), await get('/log', true)];
+  const pad = n => String(n).padStart(2, '0');
+  const d = new Date();
+  const off = -d.getTimezoneOffset();
+  const when = d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds())
+             + (off >= 0 ? '+' : '-') + pad(Math.floor(Math.abs(off) / 60)) + ':' + pad(Math.abs(off) % 60);
+  const txt = buildDiagFile({when, lang: curLang, browser: navigator.userAgent, state, mqtt, schedule, log});
+  const version = (state && state.device && state.device.version) || 'unknown';
+  const name = 'open-firenet-diag-v' + version + '-' + d.getFullYear() + pad(d.getMonth()+1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + '.txt';
+  const url = URL.createObjectURL(new Blob([txt], {type: 'text/plain'}));
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 async function downloadLog() {
   try {
     const txt = await (await fetch('/log')).text();
@@ -2974,6 +3180,40 @@ async function scanWifi() {
   }
 }
 
+// Bridge health card of the Diagnostics tab: one row per value of the "health" object of /api/state.
+let lastHealthState = null;
+function renderHealth(s) {
+  const body = document.getElementById('healthRows');
+  if (!body || !s) return;
+  lastHealthState = s;
+  const t = I18N[curLang] || I18N.en;
+  const h = s.health || {};
+  const dev = s.device || {};
+  const kb = (v) => t.healthKb.replace('{v}', Math.round(v / 1024));
+  const rows = [];
+  const upSec = (s.uptime_seconds !== undefined) ? s.uptime_seconds : dev.uptime_seconds;
+  rows.push([t.lblUptime, formatUptime(upSec)]);
+  if (h.restart_reason) rows.push([t.healthRestart, t.restartReasons[h.restart_reason] || h.restart_reason]);
+  if (dev.free_heap !== undefined) {
+    rows.push([t.healthMemory, kb(dev.free_heap) + (h.min_free_heap !== undefined ? ' (' + t.healthMemoryMin.replace('{v}', kb(h.min_free_heap)) + ')' : '')]);
+  }
+  if (h.chip_temperature !== undefined && h.chip_temperature !== null) rows.push([t.healthTemp, Number(h.chip_temperature).toFixed(1) + ' °C']);
+  if (dev.wifi_rssi !== undefined) rows.push(['Wi-Fi', dev.wifi_rssi + ' dBm']);
+  if (h.wifi_disconnects !== undefined) rows.push([t.healthWifiDrops, h.wifi_disconnects]);
+  if (h.stove_last_frame_seconds !== undefined) {
+    rows.push([t.healthLastFrame, h.stove_last_frame_seconds === null ? t.healthNever : t.healthAgo.replace('{v}', formatUptime(h.stove_last_frame_seconds))]);
+  }
+  if (h.stove_detections !== undefined) rows.push([t.healthLink, h.stove_detections + ' / ' + h.stove_link_losses]);
+  if (s.mqtt && s.mqtt.enabled && h.mqtt_disconnects !== undefined) rows.push([t.healthMqttDrops, h.mqtt_disconnects]);
+  body.textContent = '';
+  for (const [label, value] of rows) {
+    const tr = document.createElement('tr');
+    const a = document.createElement('td'); a.style.color = 'var(--text-dim)'; a.textContent = label;
+    const b = document.createElement('td'); b.textContent = value;
+    tr.append(a, b); body.append(tr);
+  }
+}
+
 function formatUptime(sec) {
   if (sec === undefined || sec === null || isNaN(sec) || sec < 0) return '--';
   const d = Math.floor(sec / 86400);
@@ -3325,6 +3565,7 @@ async function tick() {
     document.getElementById('cdcOut').textContent = s.frames_out;
     document.getElementById('cdcState').textContent = t.cdcSpeed;
     document.getElementById('cdcAck').textContent = s.version_ack ? t.yes : t.no;
+    renderHealth(s);
     document.getElementById('cdcGen').textContent = (s.generation ? s.generation : '--') + (s.version_frame && s.version_frame !== '?' ? ' (' + s.version_frame + ')' : '');
     const upSec = (s.uptime_seconds !== undefined) ? s.uptime_seconds : ((s.device && s.device.uptime_seconds !== undefined) ? s.device.uptime_seconds : rawS.uptime);
     const upStr = formatUptime(upSec);

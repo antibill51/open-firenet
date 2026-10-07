@@ -44,6 +44,7 @@ struct MqttSettings {
 };
 static MqttSettings g_mqttCfg;
 static volatile bool g_mqttConnected = false;
+static String jsonHealth(bool forMqtt);   // defined with the bridge health code
 struct MqttCommand { std::string topic, payload; };
 
 // Avec CDCOnBoot=default (désactivé), le core ne démarre pas l'USB de lui-même :
@@ -401,6 +402,7 @@ static String jsonState() {
   // board's UART/COM port, when the cable has no data wires, or when the stove is off.
   j += "\"usb\":{\"host_connected\":" + String((bool)USB ? "true" : "false") + ",\"rx_bytes\":" + String(m.rx_bytes) + "},";
   j += "\"mqtt\":{\"enabled\":" + String(g_mqttCfg.enabled ? "true" : "false") + ",\"connected\":" + String(g_mqttConnected ? "true" : "false") + "},";
+  j += jsonHealth(false) + ",";
   j += "\"frames_in\":" + String(m.frames_in) + ",";
   j += "\"frames_out\":" + String(m.frames_out) + ",";
   j += "\"revision\":" + String((long)m.revision) + ",";
@@ -478,10 +480,68 @@ static void handleTxGap() {
   web.send(200, "application/json", buf);
 }
 
+// ---------------------------------------------------------------- bridge health (issue #74)
+// Cause of the last restart. The chip tells power-on, brown-out, crash and watchdog by itself; for a restart the
+// firmware asks for, it only says "software". The reason is then left in memory that survives a software restart
+// but not a power cut (RTC, no flash wear), with a marker so that leftovers are never read as a reason.
+enum RestartNote : uint32_t { NOTE_NONE = 0, NOTE_USER, NOTE_WIFI_CHANGE, NOTE_UPDATE, NOTE_STOVE_SILENT };
+static const uint32_t RESTART_NOTE_MAGIC = 0x0F17E7A5;
+RTC_NOINIT_ATTR static uint32_t g_restartNoteMagic;
+RTC_NOINIT_ATTR static uint32_t g_restartNote;
+static const char* g_restartReason = "unknown";
+static volatile uint32_t g_wifiDisconnects = 0;   // Wi-Fi drops after a successful connection, since boot
+static volatile bool     g_wifiUp = false;
+static volatile uint32_t g_mqttDisconnects = 0;   // broker connections lost, since boot
+
+// (uint32_t, not RestartNote: the Arduino build puts its generated prototypes above the enum)
+static void noteRestart(uint32_t note) { g_restartNote = note; g_restartNoteMagic = RESTART_NOTE_MAGIC; }
+static void restartBecause(uint32_t note) { noteRestart(note); ESP.restart(); }
+
+// Called once at boot, before anything can ask for a restart.
+static void readRestartReason() {
+  uint32_t note = (g_restartNoteMagic == RESTART_NOTE_MAGIC) ? g_restartNote : (uint32_t)NOTE_NONE;
+  g_restartNoteMagic = 0; g_restartNote = NOTE_NONE;
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON:  g_restartReason = "power_on"; break;
+    case ESP_RST_BROWNOUT: g_restartReason = "brownout"; break;
+    case ESP_RST_PANIC:    g_restartReason = "crash"; break;
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:      g_restartReason = "watchdog"; break;
+    case ESP_RST_EXT:      g_restartReason = "reset_button"; break;
+    case ESP_RST_USB:      g_restartReason = "usb"; break;
+    case ESP_RST_SW:
+      g_restartReason = note == NOTE_USER ? "user" : note == NOTE_WIFI_CHANGE ? "wifi_change"
+                      : note == NOTE_UPDATE ? "update" : note == NOTE_STOVE_SILENT ? "stove_silent" : "software";
+      break;
+    default:               g_restartReason = "unknown"; break;
+  }
+}
+
+// The "health" object of /api/state. `forMqtt` leaves out the value that changes every second (age of the last
+// frame) and rounds the temperature, so that the published state only changes when something happened.
+static String jsonHealth(bool forMqtt) {
+  const auto& m = g_link->model();
+  float t = temperatureRead();
+  String j = "\"health\":{";
+  j += "\"restart_reason\":\"" + String(g_restartReason) + "\",";
+  j += "\"min_free_heap\":" + String((unsigned)ESP.getMinFreeHeap()) + ",";
+  j += "\"chip_temperature\":" + (isnan(t) ? String("null") : (forMqtt ? String((int)lroundf(t)) : String(t, 1))) + ",";
+  j += "\"wifi_disconnects\":" + String((unsigned)g_wifiDisconnects) + ",";
+  if (!forMqtt) {
+    j += "\"stove_last_frame_seconds\":" + (m.rx_bytes == 0 ? String("null") : String((millis() - m.last_rx_ms) / 1000UL)) + ",";
+  }
+  j += "\"stove_detections\":" + String(m.detections) + ",";
+  j += "\"stove_link_losses\":" + String(m.link_losses) + ",";
+  j += "\"mqtt_disconnects\":" + String((unsigned)g_mqttDisconnects);
+  j += "}";
+  return j;
+}
+
 static void handleRestart() {
   sendCors();
   web.send(200, "application/json", "{\"ok\":true,\"reboot\":true}");
-  delay(300); ESP.restart();
+  delay(300); restartBecause(NOTE_USER);
 }
 
 
@@ -520,13 +580,13 @@ static void handleWifi() {
     "<a href=\"http://open-firenet.local\" style=\"display:inline-block;width:100%;"
     "box-sizing:border-box;background:#38bdf8;color:#0c0f17;font-weight:700;padding:14px;"
     "border-radius:10px;text-decoration:none\">http://open-firenet.local</a></div></body></html>");
-  delay(300); ESP.restart();
+  delay(300); restartBecause(NOTE_WIFI_CHANGE);
 }
 // POST /api/forget -> efface le WiFi, repasse en AP au prochain boot
 static void handleForget() {
   prefs.begin("firenet", false); prefs.clear(); prefs.end();
   web.send(200,"application/json","{\"ok\":true}");
-  delay(300); ESP.restart();
+  delay(300); restartBecause(NOTE_WIFI_CHANGE);
 }
 
 // Option C — provisioning par commande série (UART0 DBG et CDC TinyUSB STOVE) :
@@ -549,7 +609,7 @@ static bool applySetWifi(const String& line, Print& out) {
         out.printf("[wifi] SETWIFI OK ssid=\"%s\" -> reboot STA\r\n", ssid.c_str());
         out.flush();
       }
-      delay(200); ESP.restart();
+      delay(200); restartBecause(NOTE_WIFI_CHANGE);
       return true;
     } else {
       DBG.println("[wifi] SETWIFI: format attendu -> SETWIFI:<ssid>:<password>");
@@ -890,7 +950,7 @@ static void mqttEvent(void*, esp_event_base_t, int32_t id, void* data) {
       g_mqttError = 0; g_mqttTlsError = 0; g_mqttFresh = true; g_mqttConnected = true;
       break;
     case MQTT_EVENT_DISCONNECTED:
-      if (g_mqttConnected) g_mqttError = -3;
+      if (g_mqttConnected) { g_mqttError = -3; g_mqttDisconnects++; }
       g_mqttConnected = false;
       break;
     case MQTT_EVENT_ERROR:
@@ -1127,7 +1187,7 @@ static void mqttPublish() {
   snprintf(dev, sizeof dev, "{\"device\":{\"version\":\"" OPENFIRENET_VERSION "\",\"connected\":%s,\"ip\":\"%s\"}",
            linked ? "true" : "false", WiFi.localIP().toString().c_str());
   // Before the stove is linked its values are not known: only the "device" object is published.
-  String state = String(dev) + (linked ? "," + jsonStoveSections() : String()) + "}";
+  String state = String(dev) + "," + jsonHealth(true) + (linked ? "," + jsonStoveSections() : String()) + "}";
   uint32_t now = millis();
   bool changed = state != g_mqttLastState;
   if ((changed && (g_mqttLastState.isEmpty() || now - g_mqttLastStateMs >= 5000)) || now - g_mqttLastStateMs >= 60000) {
@@ -1325,6 +1385,7 @@ static void handleLog() {
 
 // --------------------------------------------------------------------- setup
 void setup() {
+  readRestartReason();
   DBG.begin(115200);
   DBG.println("\n[Open Firenet] boot");
   buildNames();
@@ -1379,10 +1440,11 @@ void setup() {
     WiFi.mode(WIFI_STA);
     esp_wifi_set_ps(WIFI_PS_NONE);
     WiFi.onEvent([](WiFiEvent_t e, WiFiEventInfo_t info){
-      if (e == ARDUINO_EVENT_WIFI_STA_DISCONNECTED)
+      if (e == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
         DBG.printf("[wifi] DISCONNECTED reason=%d\n", info.wifi_sta_disconnected.reason);
-      else if (e == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
-        g_staConnected = true;
+        if (g_wifiUp) { g_wifiUp = false; g_wifiDisconnects++; }
+      } else if (e == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
+        g_staConnected = true; g_wifiUp = true;
         DBG.printf("[wifi] GOT_IP %s\n", WiFi.localIP().toString().c_str());
         g_link->setCredentials(wifiSsid.c_str(), wifiPass.c_str(),
                                WiFi.localIP().toString().c_str(), WiFi.macAddress().c_str());
@@ -1410,6 +1472,7 @@ void setup() {
   }
 
   ArduinoOTA.setHostname("open-firenet");
+  ArduinoOTA.onEnd([]() { noteRestart(NOTE_UPDATE); });   // the update library restarts the chip by itself
   ArduinoOTA.begin();
 
   if (MDNS.begin("open-firenet")) {
@@ -1490,7 +1553,7 @@ void loop() {
   if (g_link->model().version_ack &&
       (millis() - g_link->model().last_rx_ms) > RX_TIMEOUT_MS) {
     DBG.printf("[wd] aucun RX depuis %lus -> ESP.restart()\n", RX_TIMEOUT_MS / 1000);
-    delay(50); ESP.restart();
+    delay(50); restartBecause(NOTE_STOVE_SILENT);
   }
 
   // 2) cycle de lecture périodique une fois la version acquittée
