@@ -2,6 +2,9 @@
 
 ## Non publié
 
+### Features
+- Optional password for wireless updates. Set it, or remove it, with the installer while the bridge is plugged into your computer; the installer then asks for it at each wireless update. Without it, nothing changes. A full flash over USB removes it. (#77)
+
 ### Changes
 - The web API now answers only the bridge's own page and programs on your network (Home Assistant, the installer, scripts). A page of another website opened in a browser on your network can no longer read the bridge's state or send it commands. Nothing changes for normal use. **If you open the bridge, or have set up Home Assistant, with a name given by your router (for example `open-firenet.lan` or `open-firenet.fritz.box`) or a domain of your own:** the bridge now only answers at its IP address and at `open-firenet.local`. The page tells you so and gives the address to use; add your name once in the Bridge tab, new section "Access to the page", and it works again. (#77)
 - `/api/restart` only accepts POST (the web page already used it). (#77)
