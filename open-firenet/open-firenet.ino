@@ -1492,6 +1492,9 @@ void setup() {
     // différé. WiFi.begin() seul échoue (status=6 / no assoc).
     WiFi.persistent(false);
     WiFi.setAutoReconnect(false);
+    // Power saving off, through the library: on the "station started" event it applies its own setting, modem
+    // sleep by default, which undid a direct esp_wifi_set_ps(WIFI_PS_NONE) made here (issue #82).
+    WiFi.setSleep(WIFI_PS_NONE);
     WiFi.mode(WIFI_STA);
     esp_wifi_set_ps(WIFI_PS_NONE);
     WiFi.onEvent([](WiFiEvent_t e, WiFiEventInfo_t info){
