@@ -1,6 +1,6 @@
 # Changelog
 
-## Non publié
+## v4.0.0 (2026-10-08)
 
 ### Features
 - Wi-Fi power saving is now a setting of the Bridge tab. It stays on by default, as it has always been: the bridge runs cooler and draws less power, and an answer can wait up to a quarter of a second. Switch it off if your bridge often loses the Wi-Fi or if you want it to answer faster; the change applies at once. (#82)
