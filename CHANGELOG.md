@@ -9,6 +9,7 @@
 
 ### Fixes
 - Firmware 2.28: changes of the heating schedule, frost protection, eco mode and room sensor offset are now sent to the stove. The page showed them as applied, but they never reached it. (#4)
+- Web page: the MultiAir settings are now shown for a SONO. On any other model that is not known as equipped, a link "My stove has MultiAir: show its settings" brings them up. (#4)
 - Wi-Fi: when a password is set, the bridge only joins an encrypted network. It no longer accepts an open access point that shows the same name as yours. A network without password still works as before; a network still protected by the old WEP is no longer joined.
 - A command received in the first seconds after the bridge starts, before the stove has sent its settings, could write wrong settings to the stove (for example switch it on). The bridge now refuses commands until it knows the stove's settings, and answers "stove not ready"; Home Assistant and scripts simply retry. (#77)
 - Commands are only accepted on POST and PUT. (#77)

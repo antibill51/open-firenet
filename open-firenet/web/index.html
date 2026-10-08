@@ -793,7 +793,10 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
         </div>
       </div>
 
-      <!-- MultiAir Fans -->
+      <!-- MultiAir Fans: shown for the models known to have them; on another model the owner can show them -->
+      <div id="multiairReveal" style="display:none;justify-content:flex-end">
+        <a href="#" id="lnkMultiAirShow" style="font-size:0.8rem;color:var(--text-dim)" onclick="setMultiAirShown(!multiAirShown()); return false;"></a>
+      </div>
       <div id="multiairDeck" style="display:none;border-top:1px solid rgba(255,255,255,0.06);padding-top:16px;flex-direction:column;gap:14px">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <label id="lblMultiAirTitle" style="font-size:0.85rem;color:var(--text-dim);font-weight:600;letter-spacing:0.5px">VENTILATION MULTIAIR</label>
@@ -1220,6 +1223,8 @@ const I18N = {
     sliderStage: "Puissance (Auto & Manuel)",
     btnApplyStage: "Appliquer la puissance",
     multiAirTitle: "VENTILATION MULTIAIR",
+    multiAirShow: "Mon poêle a MultiAir : afficher ses réglages",
+    multiAirHide: "Masquer les réglages MultiAir",
     fan1Title: "MultiAir 1",
     fan2Title: "MultiAir 2",
     fanSpeed: "Vitesse",
@@ -1486,6 +1491,8 @@ const I18N = {
     sliderStage: "Power (Auto & Manual)",
     btnApplyStage: "Apply Power",
     multiAirTitle: "MULTIAIR VENTILATION",
+    multiAirShow: "My stove has MultiAir: show its settings",
+    multiAirHide: "Hide the MultiAir settings",
     fan1Title: "MultiAir 1",
     fan2Title: "MultiAir 2",
     fanSpeed: "Speed",
@@ -1752,6 +1759,8 @@ const I18N = {
     "sliderStage": "Potenza (Auto e Manuale)",
     "btnApplyStage": "Applica potenza",
     "multiAirTitle": "VENTILAZIONE MULTIAIR",
+    "multiAirShow": "La mia stufa ha MultiAir: mostra le impostazioni",
+    "multiAirHide": "Nascondi le impostazioni MultiAir",
     "fan1Title": "MultiAir 1",
     "fan2Title": "MultiAir 2",
     "fanSpeed": "Velocità",
@@ -2082,6 +2091,8 @@ const I18N = {
     sliderStage: "Leistung (Auto & Manuell)",
     btnApplyStage: "Leistung übernehmen",
     multiAirTitle: "MULTIAIR GEBLÄSE",
+    multiAirShow: "Mein Ofen hat MultiAir: Einstellungen anzeigen",
+    multiAirHide: "MultiAir-Einstellungen ausblenden",
     fan1Title: "MultiAir 1",
     fan2Title: "MultiAir 2",
     fanSpeed: "Stufe",
@@ -3312,6 +3323,21 @@ function renderHealth(s) {
   }
 }
 
+// MultiAir settings shown by the owner's choice, for a model the page does not know as equipped. Kept in this
+// browser only; without storage (private window) the choice lasts until the page is closed.
+let _multiAirShown = null;
+function multiAirShown() {
+  if (_multiAirShown === null) {
+    try { _multiAirShown = localStorage.getItem('multiair') === '1'; } catch (e) { _multiAirShown = false; }
+  }
+  return _multiAirShown;
+}
+function setMultiAirShown(shown) {
+  _multiAirShown = !!shown;
+  try { localStorage.setItem('multiair', shown ? '1' : '0'); } catch (e) { /* kept for this page only */ }
+  if (typeof tick === 'function') tick();
+}
+
 function formatUptime(sec) {
   if (sec === undefined || sec === null || isNaN(sec) || sec < 0) return '--';
   const d = Math.floor(sec / 86400);
@@ -3499,10 +3525,17 @@ async function tick() {
     if (s.version_ack) document.getElementById('connState').textContent = mName + vStr + ' ' + t.connectedShort;
     syncConnDot();
 
-    // MultiAir (modèles RIKA équipés : 4=ROCO MA, 13=DOMO, 17=PARO, 23=DOMO BACK, 25=SUMO MA, 29=PRIMO MA)
+    // MultiAir (modèles RIKA équipés : 4=ROCO MA, 13=DOMO, 17=PARO, 22=SONO, 23=DOMO BACK, 25=SUMO MA, 29=PRIMO MA)
     const deck = document.getElementById('multiairDeck');
-    const MULTIAIR_MODELS = [4, 13, 17, 23, 25, 29];
-    const hasMultiAir = MULTIAIR_MODELS.includes(mId);
+    const MULTIAIR_MODELS = [4, 13, 17, 22, 23, 25, 29];
+    const knownMultiAir = MULTIAIR_MODELS.includes(mId);
+    const hasMultiAir = knownMultiAir || multiAirShown();
+    // On a model that is not in the list, a link lets the owner show (or hide again) the MultiAir settings.
+    const reveal = document.getElementById('multiairReveal');
+    if (reveal) {
+      reveal.style.display = (!knownMultiAir && s.version_ack) ? 'flex' : 'none';
+      document.getElementById('lnkMultiAirShow').textContent = multiAirShown() ? t.multiAirHide : t.multiAirShow;
+    }
     if (deck) {
       deck.style.display = hasMultiAir ? 'flex' : 'none';
       if (hasMultiAir) {
