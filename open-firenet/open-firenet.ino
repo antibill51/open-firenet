@@ -70,7 +70,12 @@ Preferences prefs;
 WebServer   web(80);
 DNSServer   dnsServer;
 String      wifiSsid, wifiPass, apPass;
-static uint32_t g_wifiConnectAt = 0;   // connect STA différé (méthode open-firenet)
+static volatile uint32_t g_wifiConnectAt = 0;   // connect STA différé (méthode open-firenet)
+// Reconnection (issue #82). The library's own automatic reconnection is off (see setup), so each time the Wi-Fi
+// drops or an attempt fails, the next attempt is scheduled here: after 1 s, then 5 s, then every 30 s, without
+// ever giving up. The delay goes back to 1 s once an address is obtained.
+static volatile uint32_t g_wifiRetryMs = 1000;
+static volatile bool     g_leaveApMode = false;   // the Wi-Fi came back while the setup access point was up
 static bool     g_isApMode = false;
 static bool     g_staConnected = false;
 static uint32_t g_staStart = 0;
@@ -374,7 +379,7 @@ static String jsonState() {
       "\"ota_slot_bytes\":%u,"
       "\"connected\":%s"
     "},",
-    (WiFi.getMode()==WIFI_AP?WiFi.softAPIP():WiFi.localIP()).toString().c_str(),
+    (g_isApMode?WiFi.softAPIP():WiFi.localIP()).toString().c_str(),
     WiFi.macAddress().c_str(),
     jsonEscape(WiFi.SSID()).c_str(),   // a network name may contain quotes
     WiFi.RSSI(),
@@ -387,8 +392,8 @@ static String jsonState() {
   );
 
   String j = String(buf) + jsonStoveSections() + ",";
-  j += "\"wifi_mode\":\"" + String(WiFi.getMode()==WIFI_AP?"AP":"STA") + "\",";
-  j += "\"ip\":\"" + (WiFi.getMode()==WIFI_AP?WiFi.softAPIP():WiFi.localIP()).toString() + "\",";
+  j += "\"wifi_mode\":\"" + String(g_isApMode?"AP":"STA") + "\",";
+  j += "\"ip\":\"" + (g_isApMode?WiFi.softAPIP():WiFi.localIP()).toString() + "\",";
   j += "\"wifi_connected\":" + String(WiFi.status()==WL_CONNECTED?"true":"false") + ",";
   j += "\"uptime_seconds\":" + String(millis() / 1000UL) + ",";
   j += "\"write_enabled\":true,";
@@ -659,7 +664,10 @@ static void handleSerialProvisioning() {
 
 static void startApMode() {
   g_isApMode = true;
-  WiFi.mode(WIFI_AP);
+  // With a saved network the bridge keeps trying to join it while the setup access point is up: after a power
+  // cut the home router takes minutes to come back, long after the bridge has started (issue #82). Without one
+  // (first setup), only the access point.
+  WiFi.mode(wifiSsid.length() ? WIFI_AP_STA : WIFI_AP);
   WiFi.softAP("Open-Firenet-Setup");   // réseau ouvert (sans mot de passe)
   dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
   dnsServer.start(53, "*", WiFi.softAPIP());
@@ -793,7 +801,7 @@ static bool webGuard(WebServer& server, Middleware::Callback next) {
   std::string origin = server.header("Origin").c_str();
   if (firenet::webguard::requestAllowed(path, host, origin, g_extraHosts)) return next();
   DBG.printf("[web] refused %s (Host \"%s\", Origin \"%s\")\n", path.c_str(), host.c_str(), origin.c_str());
-  std::string ip = (WiFi.getMode() == WIFI_AP ? WiFi.softAPIP() : WiFi.localIP()).toString().c_str();
+  std::string ip = (g_isApMode ? WiFi.softAPIP() : WiFi.localIP()).toString().c_str();
   server.send(403, "application/json", firenet::webguard::refusalJson(host, origin, ip, g_extraHosts).c_str());
   return true;
 }
@@ -1488,10 +1496,15 @@ void setup() {
     esp_wifi_set_ps(WIFI_PS_NONE);
     WiFi.onEvent([](WiFiEvent_t e, WiFiEventInfo_t info){
       if (e == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
-        DBG.printf("[wifi] DISCONNECTED reason=%d\n", info.wifi_sta_disconnected.reason);
+        DBG.printf("[wifi] DISCONNECTED reason=%d, next attempt in %u ms\n", info.wifi_sta_disconnected.reason, (unsigned)g_wifiRetryMs);
         if (g_wifiUp) { g_wifiUp = false; g_wifiDisconnects++; }
+        uint32_t at = millis() + g_wifiRetryMs;
+        g_wifiConnectAt = at ? at : 1;                       // 0 means "nothing scheduled"
+        g_wifiRetryMs = g_wifiRetryMs < 5000 ? 5000 : 30000;
       } else if (e == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
         g_staConnected = true; g_wifiUp = true;
+        g_wifiRetryMs = 1000;
+        if (g_isApMode) g_leaveApMode = true;                // done in loop(), not in the Wi-Fi event task
         DBG.printf("[wifi] GOT_IP %s\n", WiFi.localIP().toString().c_str());
         g_link->setCredentials(wifiSsid.c_str(), wifiPass.c_str(),
                                WiFi.localIP().toString().c_str(), WiFi.macAddress().c_str());
@@ -1575,15 +1588,27 @@ void setup() {
 // ---------------------------------------------------------------------- loop
 void loop() {
   // 0) connect WiFi différé (laisse le driver se poser après config bas niveau)
-  if (g_wifiConnectAt && millis() >= g_wifiConnectAt) {
-    g_wifiConnectAt = 0;
-    esp_wifi_connect();
-    DBG.println("[wifi] esp_wifi_connect()");
+  if (g_wifiConnectAt && (int32_t)(millis() - g_wifiConnectAt) >= 0) {
+    if (WiFi.scanComplete() == WIFI_SCAN_RUNNING) {
+      g_wifiConnectAt = millis() + 3000;                     // a network scan is running (setup page): after it
+    } else {
+      g_wifiConnectAt = 0;
+      esp_wifi_connect();
+      DBG.println("[wifi] esp_wifi_connect()");
+    }
+  }
+  // The home network answered while the setup access point was up: the bridge is back on it, setup mode ends.
+  if (g_leaveApMode) {
+    g_leaveApMode = false;
+    dnsServer.stop();
+    WiFi.softAPdisconnect(true);
+    g_isApMode = false;
+    DBG.printf("[wifi] back on the home network (%s): setup access point closed\n", WiFi.localIP().toString().c_str());
   }
 
   // Secours : si échec de connexion STA après 20s, basculer en AP pour permettre la configuration
   if (!g_isApMode && !g_staConnected && g_staStart && (millis() - g_staStart > 20000)) {
-    DBG.println("[wifi] Échec connexion STA (20s) -> Démarrage AP de secours");
+    DBG.println("[wifi] no connection after 20 s: setup access point started, still trying the saved network");
     g_staStart = 0;
     startApMode();
   }
