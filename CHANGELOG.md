@@ -8,6 +8,8 @@
 - Web page: the names of the Wi-Fi networks found around are shown as plain text, whatever characters they contain. (#77)
 
 ### Fixes
+- Wi-Fi: the bridge now rejoins your network by itself after a drop (router restart, access point update, weak signal). It used to stay off the network until it was restarted. (#82)
+- Wi-Fi: after a power cut, when the bridge starts before your router, it keeps trying to join your network while its setup access point is up, and leaves setup mode as soon as the network answers. It used to stay in setup mode until it was restarted. (#82)
 - Firmware 2.28: changes of the heating schedule, frost protection, eco mode and room sensor offset are now sent to the stove. The page showed them as applied, but they never reached it. (#4)
 - Web page: the MultiAir settings are now shown for a SONO. On any other model that is not known as equipped, a link "My stove has MultiAir: show its settings" brings them up. (#4)
 - Wi-Fi: when a password is set, the bridge only joins an encrypted network. It no longer accepts an open access point that shows the same name as yours. A network without password still works as before; a network still protected by the old WEP is no longer joined.
