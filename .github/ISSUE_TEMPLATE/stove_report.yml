@@ -44,11 +44,12 @@ body:
         - label: MultiAir fans
         - label: Home Assistant integration
   - type: textarea
-    id: state
+    id: diagnostic
     attributes:
-      label: Output of /api/state
-      description: Paste the text of `http://open-firenet.local/api/state`. It tells us the model number, the firmware build and the values your stove reports. Remove your Wi-Fi name and addresses if you prefer.
-      render: json
+      label: Diagnostic file
+      description: |
+        On the bridge's page: Diagnostics tab, then "Diagnostic file", and drag the file here. It tells us the model number, the firmware build and the values your stove reports. Your Wi-Fi name and the bridge's MAC address are masked in it.
+        On bridge firmware 3.6.1 and older there is no such button: paste the text of `http://open-firenet.local/api/state`.
   - type: textarea
     id: more
     attributes:
