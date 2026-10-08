@@ -1506,7 +1506,9 @@ void setup() {
       wifi_config_t conf = {};
       memcpy(conf.sta.ssid,     wifiSsid.c_str(), min((size_t)wifiSsid.length(), (size_t)32));
       memcpy(conf.sta.password, wifiPass.c_str(), min((size_t)wifiPass.length(), (size_t)64));
-      conf.sta.threshold.authmode = WIFI_AUTH_OPEN;
+      // With a password, only an encrypted network is accepted: an open access point (or an old WEP one) that
+      // shows the same name is not joined. Without a password the network is meant to be open.
+      conf.sta.threshold.authmode = wifiPass.length() > 0 ? WIFI_AUTH_WPA_PSK : WIFI_AUTH_OPEN;
       conf.sta.pmf_cfg.capable    = true;
       conf.sta.pmf_cfg.required   = false;
       esp_wifi_set_config(WIFI_IF_STA, &conf);
