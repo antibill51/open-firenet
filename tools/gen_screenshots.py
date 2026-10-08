@@ -23,10 +23,10 @@ FIX = ROOT / "tools" / "screenshot_fixtures"
 SHOTS = [
     ("ui-desktop-controls",    1280, 1260, "stove",       ""),
     ("ui-desktop-schedule",    1280, 1260, "stove",       "showCtrlTab('ctrl-sched')"),
-    ("ui-desktop-bridge",      1280, 1000, "bridge",      ""),
+    ("ui-desktop-bridge",      1280, 1560, "bridge",      ""),
     ("ui-desktop-diagnostics", 1280, 1260, "diagnostics", ""),
     ("ui-mobile",               430, 2250, "stove",       ""),
-    ("ui-mobile-bridge",        430, 1180, "bridge",      ""),
+    ("ui-mobile-bridge",        430, 1840, "bridge",      ""),
 ]
 API = {"/api/state": "state.json", "/api/controls": "controls.json", "/api/control": "controls.json",
        "/api/schedule": "schedule.json", "/api/txgap": "txgap.json", "/api/mqtt": "mqtt.json"}
@@ -64,6 +64,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.reply((FIX / "log.txt").read_bytes(), "text/plain")
         elif url.path == "/api/scan":
             self.reply(json.dumps(SCAN).encode())
+        elif url.path == "/api/access":
+            self.reply(json.dumps({"ok": True, "extra_hosts": [], "max_extra_hosts": 8, "host": "open-firenet.local"}).encode())
+        elif url.path == "/api/wifi_power_saving":
+            self.reply(json.dumps({"ok": True, "enabled": True}).encode())
         else:
             self.reply(b"{}")
 
