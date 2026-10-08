@@ -48,6 +48,11 @@ static MqttSettings g_mqttCfg;
 static volatile bool g_mqttConnected = false;
 static String jsonHealth(bool forMqtt);   // defined with the bridge health code
 static String g_otaHash;                  // SHA-256 of the update password, empty when none (see loadOtaPassword)
+// Wi-Fi power saving (modem sleep), the owner's choice in the Bridge tab (issue #82). On, the default: the chip
+// sleeps between the access point's beacons, so it runs cooler and draws less from the stove's USB port, and an
+// answer can wait up to a quarter of a second. Off: it answers at once; for networks on which the bridge keeps
+// dropping. The setting goes through the Wi-Fi library, which applies its own value when the station starts.
+static bool g_wifiPowerSaving = true;
 struct MqttCommand { std::string topic, payload; };
 
 // Avec CDCOnBoot=default (désactivé), le core ne démarre pas l'USB de lui-même :
@@ -399,6 +404,7 @@ static String jsonState() {
   j += "\"wifi_mode\":\"" + String(g_isApMode?"AP":"STA") + "\",";
   j += "\"ip\":\"" + (g_isApMode?WiFi.softAPIP():WiFi.localIP()).toString() + "\",";
   j += "\"wifi_connected\":" + String(WiFi.status()==WL_CONNECTED?"true":"false") + ",";
+  j += "\"wifi_power_saving\":" + String(g_wifiPowerSaving?"true":"false") + ",";
   j += "\"uptime_seconds\":" + String(millis() / 1000UL) + ",";
   j += "\"write_enabled\":true,";
   j += "\"version_ack\":" + String(m.version_ack ? "true" : "false") + ",";
@@ -828,6 +834,9 @@ static void onUsbCdcLineCoding(void* arg, esp_event_base_t base, int32_t id, voi
 // any handler runs (see firenet_web_guard.h, issue #77). No Access-Control-Allow-Origin is sent any more.
 // Domains added by the owner in the Bridge tab (section Access), kept in the settings.
 static std::vector<std::string> g_extraHosts;
+static void applyWifiPowerSaving() {
+  WiFi.setSleep(g_wifiPowerSaving ? WIFI_PS_MIN_MODEM : WIFI_PS_NONE);
+}
 static void loadExtraHosts() {
   prefs.begin("firenet", true);
   g_extraHosts = firenet::webguard::parseExtraHosts(prefs.getString("web_hosts", "").c_str());
@@ -847,6 +856,23 @@ static bool webGuard(WebServer& server, Middleware::Callback next) {
 
 // GET /api/access: the domains added by the owner, and the name this request was addressed to.
 // POST /api/access: extra_hosts (JSON or form), free text with one domain per line; an empty text removes them all.
+// GET/POST /api/wifi_power_saving -> the setting above; a change applies at once, without a restart.
+static void handleWifiPowerSaving() {
+  if (web.method() == HTTP_POST) {
+    std::vector<std::pair<std::string, std::string>> kv;
+    firenet::jsonPairs(web.hasArg("plain") ? web.arg("plain").c_str() : "", kv);
+    for (int i = 0; i < web.args(); i++) if (web.argName(i) != "plain") kv.push_back({web.argName(i).c_str(), web.arg(i).c_str()});
+    for (const auto& p : kv) if (p.first == "enabled") {
+      g_wifiPowerSaving = (p.second == "true" || p.second == "1");
+      prefs.begin("firenet", false);
+      prefs.putBool("wifi_ps", g_wifiPowerSaving);
+      prefs.end();
+      applyWifiPowerSaving();
+    }
+  }
+  web.send(200, "application/json", String("{\"ok\":true,\"enabled\":") + (g_wifiPowerSaving ? "true" : "false") + "}");
+}
+
 static void handleAccess() {
   if (web.method() == HTTP_POST) {
     std::vector<std::pair<std::string, std::string>> kv;
@@ -1520,6 +1546,7 @@ void setup() {
   g_link->setTxGapMs(prefs.getUInt("txgap", firenet::DongleLink::TX_GAP_MS));
   wifiSsid = prefs.getString("ssid", "");
   wifiPass = prefs.getString("pass", "");
+  g_wifiPowerSaving = prefs.getBool("wifi_ps", true);   // read before the Wi-Fi starts, see applyWifiPowerSaving
   prefs.end();
 
   if (wifiSsid.length()) {
@@ -1527,15 +1554,14 @@ void setup() {
     g_isApMode = false;
     g_staStart = millis();
     // Connexion STA robuste — méthode open-firenet (fonctionne en coexistence USB
-    // natif TinyUSB) : power-save OFF, TX power max, config bas niveau + connect
+    // natif TinyUSB) : TX power max, config bas niveau + connect
     // différé. WiFi.begin() seul échoue (status=6 / no assoc).
     WiFi.persistent(false);
     WiFi.setAutoReconnect(false);
-    // Power saving off, through the library: on the "station started" event it applies its own setting, modem
-    // sleep by default, which undid a direct esp_wifi_set_ps(WIFI_PS_NONE) made here (issue #82).
-    WiFi.setSleep(WIFI_PS_NONE);
+    // Power saving as the owner chose it, through the library: on the "station started" event it applies its
+    // own setting, which undoes a direct esp_wifi_set_ps() made here (issue #82).
+    applyWifiPowerSaving();
     WiFi.mode(WIFI_STA);
-    esp_wifi_set_ps(WIFI_PS_NONE);
     WiFi.onEvent([](WiFiEvent_t e, WiFiEventInfo_t info){
       if (e == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
         DBG.printf("[wifi] DISCONNECTED reason=%d, next attempt in %u ms\n", info.wifi_sta_disconnected.reason, (unsigned)g_wifiRetryMs);
@@ -1596,6 +1622,7 @@ void setup() {
   web.on("/api/txgap", handleTxGap);
   web.on("/api/mqtt", handleMqtt);
   web.on("/api/access", handleAccess);
+  web.on("/api/wifi_power_saving", handleWifiPowerSaving);
   web.on("/api/wifi", HTTP_POST, handleWifi);
   web.on("/api/forget", HTTP_POST, handleForget);
   web.on("/api/scan", handleScan);

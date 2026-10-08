@@ -147,7 +147,7 @@ def both_ways(what, in_code, in_spec):
 
 
 # Routes (captive portal probes and the page itself aside; /api/control is an alias of /api/controls).
-routes = set(re.findall(r'web\.on\("(/(?:api/[a-z]+|log))"', ino)) - {"/api/control"}
+routes = set(re.findall(r'web\.on\("(/(?:api/[a-z_]+|log))"', ino)) - {"/api/control"}
 both_ways("route", routes, SPEC["paths"])
 
 

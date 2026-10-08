@@ -3,6 +3,7 @@
 ## Non publié
 
 ### Features
+- Wi-Fi power saving is now a setting of the Bridge tab. It stays on by default, as it has always been: the bridge runs cooler and draws less power, and an answer can wait up to a quarter of a second. Switch it off if your bridge often loses the Wi-Fi or if you want it to answer faster; the change applies at once. (#82)
 - Optional password for wireless updates. Set it, or remove it, with the installer while the bridge is plugged into your computer; the installer then asks for it at each wireless update. Without it, nothing changes. A full flash over USB removes it. (#77)
 
 ### Changes
@@ -11,7 +12,6 @@
 - Web page: the names of the Wi-Fi networks found around are shown as plain text, whatever characters they contain. (#77)
 
 ### Fixes
-- Wi-Fi: power saving is now really switched off on the bridge. It stayed on despite the setting, which delayed every answer of the page and of the API by up to a quarter of a second, and may be behind disconnections with some access points. (#82)
 - Wi-Fi: the bridge now rejoins your network by itself after a drop (router restart, access point update, weak signal). It used to stay off the network until it was restarted. (#82)
 - Wi-Fi: after a power cut, when the bridge starts before your router, it keeps trying to join your network while its setup access point is up, and leaves setup mode as soon as the network answers. It used to stay in setup mode until it was restarted. (#82)
 - Firmware 2.28: changes of the heating schedule, frost protection, eco mode and room sensor offset are now sent to the stove. The page showed them as applied, but they never reached it. (#4)

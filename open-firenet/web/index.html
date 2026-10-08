@@ -1086,6 +1086,18 @@ input:checked + .slider-switch:before { transform: translateX(20px); background-
         <button type="button" class="power-btn" id="btnSaveAccess" style="padding:8px 16px;font-size:0.9rem" onclick="saveAccess()"></button>
       </div>
     </div>
+    <div class="card" style="gap:12px;margin-top:16px" id="wifiPsCard">
+      <h3 id="lblWifiPsTitle"></h3>
+      <p id="lblWifiPsDesc" style="font-size:0.85rem;color:var(--text-dim);margin:0"></p>
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+        <span id="lblWifiPsToggle" style="font-weight:600;font-size:0.9rem"></span>
+        <label class="switch">
+          <input type="checkbox" id="wifiPsToggle" onchange="saveWifiPowerSaving()">
+          <span class="slider-switch"></span>
+        </label>
+        <span id="wifiPsStatus" style="font-size:0.8rem;color:var(--text-dim)"></span>
+      </label>
+    </div>
     <div class="card" style="gap:12px;margin-top:16px">
       <h3 id="lblBridgeRestart"></h3>
       <p id="lblBridgeRestartDesc" style="font-size:0.85rem;color:var(--text-dim);margin:0"></p>
@@ -1309,6 +1321,11 @@ const I18N = {
     mqttSaved: "Enregistré ✓",
     refusedTitle: "La clé ne répond pas sous ce nom",
     refusedDesc: "Pour votre sécurité, elle n'accepte que son adresse IP et open-firenet.local. Ouvrez-la par son adresse, puis ajoutez « {host} » dans l'onglet Clé, section Accès :",
+    wifiPsTitle: "Économie d'énergie Wi-Fi",
+    wifiPsDesc: "Activée, la clé chauffe et consomme moins, et peut mettre jusqu'à un quart de seconde à répondre. Désactivez-la si la clé perd souvent le Wi-Fi ou si vous la voulez plus réactive. Le changement s'applique tout de suite.",
+    wifiPsToggle: "Économie d'énergie",
+    wifiPsSaved: "Enregistré ✓",
+    wifiPsError: "Échec de l'enregistrement",
     accessTitle: "Accès à la page",
     accessDesc: "La clé répond à son adresse IP et à open-firenet.local. Si vous l'ouvrez sous un autre nom, par exemple celui que lui donne votre box, ajoutez-le ici. Elle ne répond jamais à une page d'un autre site web.",
     accessHosts: "Noms supplémentaires (un par ligne, 8 au plus)",
@@ -1577,6 +1594,11 @@ const I18N = {
     mqttSaved: "Saved ✓",
     refusedTitle: "The bridge does not answer under this name",
     refusedDesc: "For your safety it only accepts its IP address and open-firenet.local. Open it by its address, then add \"{host}\" in the Bridge tab, section Access:",
+    wifiPsTitle: "Wi-Fi power saving",
+    wifiPsDesc: "When on, the bridge runs cooler and draws less power, and may take up to a quarter of a second to answer. Switch it off if the bridge often loses the Wi-Fi, or if you want it to answer faster. The change applies at once.",
+    wifiPsToggle: "Power saving",
+    wifiPsSaved: "Saved ✓",
+    wifiPsError: "Could not save",
     accessTitle: "Access to the page",
     accessDesc: "The bridge answers at its IP address and at open-firenet.local. If you open it under another name, for example the one your router gives it, add it here. It never answers a page of another website.",
     accessHosts: "Extra names (one per line, 8 at most)",
@@ -1853,6 +1875,11 @@ const I18N = {
     "mqttSaved": "Salvato ✓",
     "refusedTitle": "Il bridge non risponde con questo nome",
     "refusedDesc": "Per la tua sicurezza accetta solo il suo indirizzo IP e open-firenet.local. Aprilo con il suo indirizzo, poi aggiungi «{host}» nella scheda Bridge, sezione Accesso:",
+    "wifiPsTitle": "Risparmio energetico Wi-Fi",
+    "wifiPsDesc": "Se attivo, il bridge scalda e consuma meno, e può impiegare fino a un quarto di secondo per rispondere. Disattivalo se il bridge perde spesso il Wi-Fi o se lo vuoi più reattivo. La modifica si applica subito.",
+    "wifiPsToggle": "Risparmio energetico",
+    "wifiPsSaved": "Salvato ✓",
+    "wifiPsError": "Salvataggio non riuscito",
     "accessTitle": "Accesso alla pagina",
     "accessDesc": "Il bridge risponde al suo indirizzo IP e a open-firenet.local. Se lo apri con un altro nome, per esempio quello assegnato dal tuo router, aggiungilo qui. Non risponde mai a una pagina di un altro sito web.",
     "accessHosts": "Nomi aggiuntivi (uno per riga, al massimo 8)",
@@ -2177,6 +2204,11 @@ const I18N = {
     mqttSaved: "Gespeichert ✓",
     refusedTitle: "Der Stick antwortet nicht unter diesem Namen",
     refusedDesc: "Zu Ihrer Sicherheit akzeptiert er nur seine IP-Adresse und open-firenet.local. Öffnen Sie ihn über seine Adresse und fügen Sie dann „{host}“ im Tab Stick, Abschnitt Zugriff, hinzu:",
+    wifiPsTitle: "WLAN-Energiesparen",
+    wifiPsDesc: "Eingeschaltet wird der Stick weniger warm und verbraucht weniger Strom, braucht aber bis zu einer Viertelsekunde für eine Antwort. Schalten Sie es aus, wenn der Stick das WLAN oft verliert oder schneller antworten soll. Die Änderung gilt sofort.",
+    wifiPsToggle: "Energiesparen",
+    wifiPsSaved: "Gespeichert ✓",
+    wifiPsError: "Speichern fehlgeschlagen",
     accessTitle: "Zugriff auf die Seite",
     accessDesc: "Der Stick antwortet unter seiner IP-Adresse und unter open-firenet.local. Wenn Sie ihn unter einem anderen Namen öffnen, zum Beispiel dem von Ihrem Router vergebenen, tragen Sie diesen hier ein. Einer Seite einer anderen Website antwortet er nie.",
     accessHosts: "Zusätzliche Namen (einer pro Zeile, höchstens 8)",
@@ -2382,6 +2414,9 @@ function applyLang() {
   document.getElementById('pageBtnDiag').textContent = t.pageDiag;
   document.getElementById('lblDiagLink').textContent = t.diagLink;
   document.getElementById('lblDiagHealth').textContent = t.diagHealth;
+  document.getElementById('lblWifiPsTitle').textContent = t.wifiPsTitle;
+  document.getElementById('lblWifiPsDesc').textContent = t.wifiPsDesc;
+  document.getElementById('lblWifiPsToggle').textContent = t.wifiPsToggle;
   document.getElementById('lblAccessTitle').textContent = t.accessTitle;
   document.getElementById('lblAccessDesc').textContent = t.accessDesc;
   document.getElementById('lblAccessHosts').textContent = t.accessHosts;
@@ -2639,6 +2674,30 @@ async function loadAccess() {
     if (document.activeElement !== box) box.value = (a.extra_hosts || []).join('\n');
   } catch (e) { /* the page keeps working without it */ }
 }
+// Wi-Fi power saving switch of the Bridge tab; a change is saved and applied at once.
+async function loadWifiPowerSaving() {
+  try {
+    const r = await fetch('/api/wifi_power_saving');
+    if (!r.ok) return;
+    document.getElementById('wifiPsToggle').checked = (await r.json()).enabled !== false;
+  } catch (e) { /* the page keeps working without it */ }
+}
+let _wifiPsTimer = null;
+async function saveWifiPowerSaving() {
+  const t = I18N[curLang] || I18N.en, box = document.getElementById('wifiPsToggle'), note = document.getElementById('wifiPsStatus');
+  const wanted = box.checked;
+  let ok = false;
+  try {
+    const r = await fetch('/api/wifi_power_saving', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                                     body: JSON.stringify({enabled: wanted})});
+    ok = r.ok && (await r.json()).enabled === wanted;
+  } catch (e) { ok = false; }
+  if (!ok) box.checked = !wanted;                    // show what the bridge really has
+  clearTimeout(_wifiPsTimer);
+  note.textContent = ok ? t.wifiPsSaved : t.wifiPsError;
+  note.style.color = ok ? 'var(--green)' : 'var(--amber)';
+  _wifiPsTimer = setTimeout(() => { note.textContent = ''; }, 2500);
+}
 let _accessSaveTimer = null;
 async function saveAccess() {
   const t = I18N[curLang] || I18N.en, btn = document.getElementById('btnSaveAccess');
@@ -2711,6 +2770,7 @@ document.getElementById('mqttTls').addEventListener('change', () => syncMqttTls(
 
 loadMqtt(true);
 loadAccess();
+loadWifiPowerSaving();
 setInterval(() => { if (currentPage() === 'bridge') loadMqtt(false); }, 3000);
 
 let _txGapTimer = null;
