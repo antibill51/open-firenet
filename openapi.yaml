@@ -289,6 +289,35 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Access" }
+  /api/wifi_power_saving:
+    get:
+      tags: [Bridge]
+      summary: Whether Wi-Fi power saving is on
+      description: "On by default: the bridge runs cooler and draws less power, and an answer can wait up to a quarter of a second. Off: it answers at once; for networks on which the bridge keeps losing the Wi-Fi."
+      responses:
+        "200":
+          description: The setting
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WifiPowerSaving" }
+    post:
+      tags: [Bridge]
+      summary: Switch Wi-Fi power saving on or off
+      description: Saved, and applied at once without a restart.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: The setting as saved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WifiPowerSaving" }
   /api/restart:
     post:
       tags: [Bridge]
@@ -340,6 +369,11 @@ components:
       type: string
       enum: [manual, auto, comfort]
       description: "`manual`: fixed power. `auto`: follows the weekly schedule. `comfort`: follows the room temperature."
+    WifiPowerSaving:
+      type: object
+      properties:
+        ok: { type: boolean }
+        enabled: { type: boolean }
     Access:
       type: object
       properties:
@@ -374,6 +408,7 @@ components:
         sensors: { $ref: "#/components/schemas/Sensors" }
         controls: { $ref: "#/components/schemas/ControlsState" }
         wifi_mode: { type: string, enum: [STA, AP], description: "`AP` while the bridge is in setup mode" }
+        wifi_power_saving: { type: boolean, description: "Whether Wi-Fi power saving is on, see `/api/wifi_power_saving`" }
         ip: { type: string }
         wifi_connected: { type: boolean }
         uptime_seconds: { type: integer }
