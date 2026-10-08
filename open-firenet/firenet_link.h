@@ -568,11 +568,17 @@ public:
     // Read in the 2.27 disassembly (apply routine fn 0x8004a8b8): records 1..36 are all applied, whatever the number
     // of pairs received, so every pair sent must carry the stove's current value unless it is the commanded one. The
     // V1 frame is therefore only sent once the stove has posted every record up to roomTempOffset (DOMO 31).
-    // Stoves answering the 2.28 probe only get the five-field frame: it is the one a real LIVO 2.28 accepts (field
-    // report, test/v1-protocol), while the DOMO-ordered extended frame was never validated on a 2.28.
+    // Firmware 2.28: its controls table has the records of the extended frame below at the same positions (read in
+    // the 2.28 apply routine fn 0x80019c6c: schedule 7..20, heatingTimesActive 21, setBackTemp 22, MultiAir 23..28,
+    // frost 29 / 30, room offset 31; record 5 is not written back). Like the 2.26/2.27 routine it applies its
+    // records whatever the number of pairs received, so it follows the same rule: the extended frame is only sent
+    // once the stove has posted every record up to roomTempOffset, each pair then carrying the stove's current
+    // value unless it is the commanded one; before that, the five-field frame. Until then a 2.28 only ever got the
+    // five-field frame, so schedule, frost, eco and offset changes never reached it (issue #4). The extended frame
+    // is not yet confirmed on a real 2.28.
     const bool v1Layout = (model_.version_profile == DETECT_V1);
-    if (model_.version_profile == DETECT_V28) sendExtended = false;
-    if (v1Layout && model_.controls_pos.size() < 32) sendExtended = false;
+    const bool needsAllRecords = v1Layout || model_.version_profile == DETECT_V28;
+    if (needsAllRecords && model_.controls_pos.size() < 32) sendExtended = false;
     if (sendExtended && v1Layout) {
       model_.controls_pos[6] = ecoMode;
       model_.controls_pos[23] = fan1On;
