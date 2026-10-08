@@ -452,6 +452,7 @@ int main(){
     c5+=60; l5.poll();
     CH("V1 STX 0 ETX clears version_ack immediately", !l5.model().version_ack);
     CH("health: the dropped link is counted once", l5.model().link_losses == 1);
+    CH("a dropped link forgets the synced controls", !l5.model().controls_synced);
     drain5();
     CH("V1 handshake re-armed after session reset", w5.find("GET_WIFI_VERSION_GET_CDCDEVICE_VERSION=0; ") != std::string::npos);
     {
@@ -557,6 +558,15 @@ int main(){
     c11 += 60; l11.poll();
     CH("2.28: generation=1 (DOMO protocol) after ack", l11.model().generation == 1 && l11.model().version_ack);
     CH("health: one detection counted at the ack, no link loss", l11.model().detections == 1 && l11.model().link_losses == 0);
+    // Commands wait for the stove's named settings: an unnamed frame posted before the names are registered
+    // carries values whose positions are not known.
+    CH("controls not synced right after the ack", !l11.model().controls_synced);
+    for (char c : std::string("POST_CONTROLS=0; =0; =2; =70; =190; =180; =140; =1; =80; ")) l11.onByte(c);
+    c11 += 60; l11.poll();
+    CH("an unnamed controls frame does not make the controls synced", !l11.model().controls_synced);
+    for (char c : std::string("POST_CONTROLS=0; revision=0; onOff=0; mode=2; targetStage=70; roomTarget=190; bakeTarget=180; ")) l11.onByte(c);
+    c11 += 60; l11.poll();
+    CH("the named controls frame makes them synced", l11.model().controls_synced);
     for (char c : std::string("GET_CDCDEVICE_VERSION_FINISHED")) l11.onByte(c);
     c11 += 60; l11.poll();
     CH("health: a second acknowledgement in a row is not a new detection", l11.model().detections == 1);

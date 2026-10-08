@@ -8,6 +8,8 @@
 - Web page: the names of the Wi-Fi networks found around are shown as plain text, whatever characters they contain. (#77)
 
 ### Fixes
+- A command received in the first seconds after the bridge starts, before the stove has sent its settings, could write wrong settings to the stove (for example switch it on). The bridge now refuses commands until it knows the stove's settings, and answers "stove not ready"; Home Assistant and scripts simply retry. (#77)
+- Commands are only accepted on POST and PUT. (#77)
 - A Wi-Fi network whose name contains a quote or a backslash, yours or a neighbour's, no longer breaks the page or the list of networks. (#77)
 
 ## v3.7.0 (2026-10-08)

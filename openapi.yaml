@@ -90,6 +90,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ControlsResult"
+        "503":
+          $ref: "#/components/responses/StoveNotReady"
   /api/schedule:
     get:
       tags: [Stove]
@@ -119,6 +121,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ControlsResult"
+        "503":
+          $ref: "#/components/responses/StoveNotReady"
   /api/mqtt:
     get:
       tags: [Bridge]
@@ -308,6 +312,20 @@ paths:
               schema: { type: string }
 components:
   responses:
+    StoveNotReady:
+      description: The stove is not linked, or has not sent its settings yet (a few seconds after the link comes up). Nothing was sent; try again.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+          description: Seconds to wait before trying again
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              ok: { type: boolean }
+              error: { type: string, enum: [stove_not_ready] }
+              message: { type: string }
     Restarting:
       description: The bridge restarts
       content:

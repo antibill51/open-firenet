@@ -35,7 +35,7 @@
 // Types used in function signatures are declared here, ahead of every function: the Arduino builder inserts its
 // generated prototypes before the first function of the sketch.
 // Base settings sent to the stove by applyControlPairs().
-struct AppliedControls { long on, mode, stage, room; };
+struct AppliedControls { long on, mode, stage, room; bool sent; };   // sent: false when the command was refused
 
 // MQTT settings (the logic is further down, in the MQTT section).
 struct MqttSettings {
@@ -826,6 +826,9 @@ static void handleAccess() {
 // MQTT. The base settings it ends up sending are returned for the answer.
 static AppliedControls applyControlPairs(const std::vector<std::pair<std::string, std::string>>& pairs) {
   const auto& m = g_link->model();
+  // A command is the stove's current settings plus the commanded ones: nothing is sent before the stove has posted
+  // its settings under their names (a few seconds after the link comes up), see Model::controls_synced.
+  if (!m.version_ack || !m.controls_synced) return {0, 0, 0, 0, false};
   const auto cmd = firenet::parseControlCommands(pairs);
   auto has = [&](const char* c) { return cmd.find(c) != cmd.end(); };
   auto get = [&](const char* c, long def) { auto it = cmd.find(c); return it != cmd.end() ? it->second : controlValue(m, c, def); };
@@ -862,7 +865,7 @@ static AppliedControls applyControlPairs(const std::vector<std::pair<std::string
 
   g_link->applyControls(full);
   lastPoll = millis();
-  return {finalOn, finalMode, finalStage, finalRoom};
+  return {finalOn, finalMode, finalStage, finalRoom, true};
 }
 
 // GET /api/controls & POST /api/controls (V2 JSON + legacy compat)
@@ -901,6 +904,14 @@ static void handleApiControls() {
     return;
   }
 
+  // Commands only on POST and PUT. Any other method is refused: a browser sends HEAD, for one, without saying
+  // which page asks, so it would get past the check on the page of origin (issue #77).
+  if (web.method() != HTTP_POST && web.method() != HTTP_PUT) {
+    web.sendHeader("Allow", "GET, POST, PUT");
+    web.send(405, "application/json", "{\"ok\":false,\"error\":\"method_not_allowed\"}");
+    return;
+  }
+
   // POST / PUT: every accepted form (JSON body, "k=v;" text, form or query arguments, name/value pair) is reduced to
   // name/value pairs and parsed by the same table (firenet_api.h). Later forms override earlier ones.
   std::string body = (web.hasArg("plain") ? web.arg("plain") : (web.hasArg("cmd") ? web.arg("cmd") : String())).c_str();
@@ -913,6 +924,11 @@ static void handleApiControls() {
   }
   if (web.hasArg("name") && web.hasArg("value")) pairs.push_back({web.arg("name").c_str(), web.arg("value").c_str()});
   const AppliedControls r = applyControlPairs(pairs);
+  if (!r.sent) {
+    web.sendHeader("Retry-After", "5");
+    web.send(503, "application/json", "{\"ok\":false,\"error\":\"stove_not_ready\",\"message\":\"The stove is not linked, or has not sent its settings yet. Nothing was sent; try again in a few seconds.\"}");
+    return;
+  }
   long finalOn = r.on, finalMode = r.mode, finalStage = r.stage, finalRoom = r.room;
 
   const char* modeName = (finalMode == 0) ? "manual" : ((finalMode == 1) ? "auto" : "comfort");
@@ -1059,11 +1075,10 @@ static void mqttApply(const MqttCommand& c) {
     DBG.printf("[mqtt] nothing to apply in %s\n", c.topic.c_str());
     return;
   }
-  if (!g_link->model().version_ack || g_link->model().controls_pos.empty()) {
-    DBG.println("[mqtt] command ignored: the stove is not linked");   // its current settings are not known yet
+  if (!applyControlPairs(pairs).sent) {
+    DBG.println("[mqtt] command ignored: the stove is not linked or has not sent its settings yet");
     return;
   }
-  applyControlPairs(pairs);
   DBG.printf("[mqtt] command applied from %s\n", c.topic.c_str());
 }
 
