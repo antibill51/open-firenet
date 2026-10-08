@@ -26,6 +26,7 @@
 #include "firenet_link.h"
 #include "firenet_api.h"
 #include "firenet_web_guard.h"
+#include "mbedtls/sha256.h"
 #include "firenet_mqtt.h"
 #include <deque>
 #include "mqtt_client.h"   // esp-mqtt, Espressif's MQTT client shipped with the ESP32 core
@@ -46,6 +47,7 @@ struct MqttSettings {
 static MqttSettings g_mqttCfg;
 static volatile bool g_mqttConnected = false;
 static String jsonHealth(bool forMqtt);   // defined with the bridge health code
+static String g_otaHash;                  // SHA-256 of the update password, empty when none (see loadOtaPassword)
 struct MqttCommand { std::string topic, payload; };
 
 // Avec CDCOnBoot=default (désactivé), le core ne démarre pas l'USB de lui-même :
@@ -377,6 +379,7 @@ static String jsonState() {
       "\"uptime_seconds\":%lu,"
       "\"free_heap\":%u,"
       "\"ota_slot_bytes\":%u,"
+      "\"ota_password_set\":%s,"
       "\"connected\":%s"
     "},",
     (g_isApMode?WiFi.softAPIP():WiFi.localIP()).toString().c_str(),
@@ -388,6 +391,7 @@ static String jsonState() {
     // Size of the partition a wireless update is written to: a firmware larger than this cannot be installed
     // over Wi-Fi (1,310,720 bytes on a board flashed with Arduino's default partition scheme).
     (unsigned)ESP.getFreeSketchSpace(),
+    g_otaHash.length() == 64 ? "true" : "false",
     m.version_ack ? "true" : "false"
   );
 
@@ -585,9 +589,30 @@ static void handleWifi() {
     "border-radius:10px;text-decoration:none\">http://open-firenet.local</a></div></body></html>");
   delay(300); restartBecause(NOTE_WIFI_CHANGE);
 }
+// Optional password for wireless updates (issue #77). It can only be set or removed over the USB serial port
+// (SETOTAPASS, sent by the installer), never over the network: whoever holds the bridge decides, and a device on
+// the network cannot set one first to lock the owner out. Only its SHA-256 is kept, which is what the update
+// library works with. A full flash over USB erases it.
+static void loadOtaPassword() {
+  prefs.begin("firenet", true);
+  g_otaHash = prefs.getString("ota_hash", "");
+  prefs.end();
+  if (g_otaHash.length() != 64) g_otaHash = "";
+}
+static String sha256Hex(const String& text) {
+  uint8_t digest[32];
+  mbedtls_sha256((const unsigned char*)text.c_str(), text.length(), digest, 0);
+  char hex[65];
+  for (int i = 0; i < 32; i++) snprintf(hex + 2 * i, 3, "%02x", digest[i]);
+  return String(hex);
+}
+
 // POST /api/forget -> efface le WiFi, repasse en AP au prochain boot
 static void handleForget() {
-  prefs.begin("firenet", false); prefs.clear(); prefs.end();
+  // The update password stays: erasing it from the network would defeat it.
+  prefs.begin("firenet", false); prefs.clear();
+  if (g_otaHash.length() == 64) prefs.putString("ota_hash", g_otaHash);
+  prefs.end();
   web.send(200,"application/json","{\"ok\":true}");
   delay(300); restartBecause(NOTE_WIFI_CHANGE);
 }
@@ -596,6 +621,20 @@ static void handleForget() {
 //   SETWIFI:<ssid>:<password>
 // Le SSID s'arrête au premier ':' ; tout le reste est le mot de passe (donc un
 // mot de passe contenant ':' est accepté). Enregistre en NVS puis redémarre en STA.
+//   SETOTAPASS:<password>   sets the password asked for wireless updates; an empty password removes it.
+static bool applySetOtaPass(const String& line, Print& out) {
+  if (!line.startsWith("SETOTAPASS:")) return false;
+  String pass = line.substring(11);
+  prefs.begin("firenet", false);
+  if (pass.length() > 0) prefs.putString("ota_hash", sha256Hex(pass)); else prefs.remove("ota_hash");
+  prefs.end();
+  const char* what = pass.length() > 0 ? "password set" : "password removed";
+  DBG.printf("[ota] SETOTAPASS OK %s -> reboot\n", what);
+  if ((Print*)&out != (Print*)&DBG) { out.printf("[ota] SETOTAPASS OK %s -> reboot\r\n", what); out.flush(); }
+  delay(200); restartBecause(NOTE_USER);
+  return true;
+}
+
 static bool applySetWifi(const String& line, Print& out) {
   if (line.startsWith("SETWIFI:")) {
     String rest = line.substring(8);       // après "SETWIFI:"
@@ -631,7 +670,7 @@ static void handleSerialProvisioning() {
     char c = (char)DBG.read();
     if (c == '\n' || c == '\r') {
       if (dbgLine.length() > 0) {
-        applySetWifi(dbgLine, DBG);
+        if (!applySetOtaPass(dbgLine, DBG)) applySetWifi(dbgLine, DBG);
         dbgLine = "";
       }
     } else if (dbgLine.length() < 160) {
@@ -646,7 +685,7 @@ static void handleSerialProvisioning() {
     char c = (char)b;
     if (c == '\n' || c == '\r') {
       if (stoveLine.length() > 0) {
-        applySetWifi(stoveLine, STOVE);
+        if (!applySetOtaPass(stoveLine, STOVE)) applySetWifi(stoveLine, STOVE);
         stoveLine = "";
       }
     } else {
@@ -1537,6 +1576,8 @@ void setup() {
   }
 
   ArduinoOTA.setHostname("open-firenet");
+  loadOtaPassword();
+  if (g_otaHash.length() == 64) ArduinoOTA.setPasswordHash(g_otaHash.c_str());
   ArduinoOTA.onEnd([]() { noteRestart(NOTE_UPDATE); });   // the update library restarts the chip by itself
   ArduinoOTA.begin();
 

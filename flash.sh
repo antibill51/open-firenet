@@ -17,12 +17,15 @@ Options:
   -h, --help        Show this help message and exit
   --build           Compile only, do not flash
   --ota <ip>        Flash via WiFi ArduinoOTA instead of serial
+                    If the bridge has an update password, give it in the
+                    OTA_PASSWORD environment variable
 
 Examples:
   $(basename "$0")                    Flash via serial (auto-detect port)
   $(basename "$0") /dev/ttyACM1       Flash via a specific serial port
   $(basename "$0") --build            Compile check only
   $(basename "$0") --ota 192.168.1.93 Flash via WiFi OTA
+  OTA_PASSWORD=secret $(basename "$0") --ota 192.168.1.93
 
 Notes:
   - Requires: arduino-cli, esptool (serial) or python3 (OTA)
@@ -105,7 +108,10 @@ if [[ -n "$OTA_IP" ]]; then
     echo "Error: espota.py not found in arduino15 packages." >&2
     exit 1
   fi
-  python3 "$ESPOTA" -i "$OTA_IP" -f "$BUILD_DIR/open-firenet.ino.bin" -r
+  # The password goes through the environment, not an option, so it stays out of the shell history.
+  OTA_AUTH=()
+  if [[ -n "${OTA_PASSWORD:-}" ]]; then OTA_AUTH=(-a "$OTA_PASSWORD"); fi
+  python3 "$ESPOTA" -i "$OTA_IP" -f "$BUILD_DIR/open-firenet.ino.bin" -r "${OTA_AUTH[@]}"
   echo ""
   echo "Done. Device is rebooting."
 else
