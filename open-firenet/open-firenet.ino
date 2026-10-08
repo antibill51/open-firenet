@@ -25,6 +25,7 @@
 #include "esp_wifi.h"  // connexion STA robuste (méthode open-firenet, coexistence USB)
 #include "firenet_link.h"
 #include "firenet_api.h"
+#include "firenet_web_guard.h"
 #include "firenet_mqtt.h"
 #include <deque>
 #include "mqtt_client.h"   // esp-mqtt, Espressif's MQTT client shipped with the ESP32 core
@@ -34,7 +35,7 @@
 // Types used in function signatures are declared here, ahead of every function: the Arduino builder inserts its
 // generated prototypes before the first function of the sketch.
 // Base settings sent to the stove by applyControlPairs().
-struct AppliedControls { long on, mode, stage, room; };
+struct AppliedControls { long on, mode, stage, room; bool sent; };   // sent: false when the command was refused
 
 // MQTT settings (the logic is further down, in the MQTT section).
 struct MqttSettings {
@@ -375,7 +376,7 @@ static String jsonState() {
     "},",
     (WiFi.getMode()==WIFI_AP?WiFi.softAPIP():WiFi.localIP()).toString().c_str(),
     WiFi.macAddress().c_str(),
-    WiFi.SSID().c_str(),
+    jsonEscape(WiFi.SSID()).c_str(),   // a network name may contain quotes
     WiFi.RSSI(),
     millis() / 1000UL,
     ESP.getFreeHeap(),
@@ -423,7 +424,7 @@ static String jsonState() {
   for (auto& kv : m.status) {
     if (!first) j += ","; first = false;
     String val = (kv.first == "wpa2" && !kv.second.empty() && kv.second != "0") ? "********" : String(kv.second.c_str());
-    j += "\"" + String(kv.first.c_str()) + "\":\"" + val + "\"";
+    j += "\"" + jsonEscape(String(kv.first.c_str())) + "\":\"" + jsonEscape(val) + "\"";
   }
   j += "},";
 
@@ -439,9 +440,8 @@ static String jsonState() {
   return j;
 }
 
-static void handleState()   { sendCors(); web.send(200, "application/json", jsonState()); }
+static void handleState()   { web.send(200, "application/json", jsonState()); }
 static void handleVersion() {
-  sendCors();
   char buf[220];
   snprintf(buf, sizeof(buf),
     "{\"app\":\"Open Firenet\",\"version\":\"" OPENFIRENET_VERSION "\",\"build_date\":\"%s\",\"build_time\":\"%s\",\"target\":\"ESP32-S3\"}",
@@ -458,7 +458,6 @@ static void handleRoot() {
 // GET/POST /api/txgap : délai entre trames envoyées au poêle (ms), borné à 50..600.
 // Pris en compte dès la prochaine évaluation de la file d'émission ; conservé en NVS.
 static void handleTxGap() {
-  sendCors();
   if (web.method() == HTTP_OPTIONS) { web.send(204); return; }
   if (web.method() == HTTP_POST) {
     long ms = 0;
@@ -539,7 +538,6 @@ static String jsonHealth(bool forMqtt) {
 }
 
 static void handleRestart() {
-  sendCors();
   web.send(200, "application/json", "{\"ok\":true,\"reboot\":true}");
   delay(300); restartBecause(NOTE_USER);
 }
@@ -681,7 +679,6 @@ static void handleCaptiveRedirect() {
 
 // GET /api/scan -> scanne les réseaux 2.4 GHz et renvoie un tableau JSON
 static void handleScan() {
-  sendCors();
   int n = WiFi.scanComplete();
   if (n == -2) {
     WiFi.scanNetworks(true);
@@ -705,7 +702,7 @@ static void handleScan() {
     seen.push_back(ssid);
 
     if (count > 0) json += ",";
-    json += "{\"ssid\":\"" + ssid + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+    json += "{\"ssid\":\"" + jsonEscape(ssid) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
     count++;
   }
   json += "]";
@@ -780,16 +777,58 @@ static void onUsbCdcLineCoding(void* arg, esp_event_base_t base, int32_t id, voi
   logEntry("usb", b);
 }
 
-static void sendCors() {
-  web.sendHeader("Access-Control-Allow-Origin", "*");
-  web.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  web.sendHeader("Access-Control-Allow-Headers", "*");
+// The API answers its own page and clients that are not browsers; a page of another website gets a 403 before
+// any handler runs (see firenet_web_guard.h, issue #77). No Access-Control-Allow-Origin is sent any more.
+// Domains added by the owner in the Bridge tab (section Access), kept in the settings.
+static std::vector<std::string> g_extraHosts;
+static void loadExtraHosts() {
+  prefs.begin("firenet", true);
+  g_extraHosts = firenet::webguard::parseExtraHosts(prefs.getString("web_hosts", "").c_str());
+  prefs.end();
+}
+
+static bool webGuard(WebServer& server, Middleware::Callback next) {
+  std::string path = server.uri().c_str();
+  std::string host = server.hostHeader().c_str();
+  std::string origin = server.header("Origin").c_str();
+  if (firenet::webguard::requestAllowed(path, host, origin, g_extraHosts)) return next();
+  DBG.printf("[web] refused %s (Host \"%s\", Origin \"%s\")\n", path.c_str(), host.c_str(), origin.c_str());
+  std::string ip = (WiFi.getMode() == WIFI_AP ? WiFi.softAPIP() : WiFi.localIP()).toString().c_str();
+  server.send(403, "application/json", firenet::webguard::refusalJson(host, origin, ip, g_extraHosts).c_str());
+  return true;
+}
+
+// GET /api/access: the domains added by the owner, and the name this request was addressed to.
+// POST /api/access: extra_hosts (JSON or form), free text with one domain per line; an empty text removes them all.
+static void handleAccess() {
+  if (web.method() == HTTP_POST) {
+    std::vector<std::pair<std::string, std::string>> kv;
+    firenet::jsonPairs(web.hasArg("plain") ? web.arg("plain").c_str() : "", kv);
+    for (int i = 0; i < web.args(); i++) if (web.argName(i) != "plain") kv.push_back({web.argName(i).c_str(), web.arg(i).c_str()});
+    for (const auto& p : kv) if (p.first == "extra_hosts") {
+      String text = p.second.c_str();
+      text.replace("\\n", "\n"); text.replace("\\r", "");          // JSON carries the line breaks as "\n"
+      auto hosts = firenet::webguard::parseExtraHosts(text.c_str());
+      prefs.begin("firenet", false);
+      prefs.putString("web_hosts", firenet::webguard::joinExtraHosts(hosts).c_str());
+      prefs.end();
+      g_extraHosts = hosts;
+    }
+  }
+  String j = "{\"ok\":true,\"extra_hosts\":[";
+  for (size_t i = 0; i < g_extraHosts.size(); i++) j += String(i ? "," : "") + "\"" + g_extraHosts[i].c_str() + "\"";
+  j += "],\"max_extra_hosts\":" + String((unsigned)firenet::webguard::MAX_EXTRA_HOSTS);
+  j += ",\"host\":\"" + jsonEscape(String(firenet::webguard::hostName(web.hostHeader().c_str()).c_str())) + "\"}";
+  web.send(200, "application/json", j);
 }
 
 // Applies commanded name/value pairs (any name accepted by firenet_api.h) to the stove; shared by the REST API and
 // MQTT. The base settings it ends up sending are returned for the answer.
 static AppliedControls applyControlPairs(const std::vector<std::pair<std::string, std::string>>& pairs) {
   const auto& m = g_link->model();
+  // A command is the stove's current settings plus the commanded ones: nothing is sent before the stove has posted
+  // its settings under their names (a few seconds after the link comes up), see Model::controls_synced.
+  if (!m.version_ack || !m.controls_synced) return {0, 0, 0, 0, false};
   const auto cmd = firenet::parseControlCommands(pairs);
   auto has = [&](const char* c) { return cmd.find(c) != cmd.end(); };
   auto get = [&](const char* c, long def) { auto it = cmd.find(c); return it != cmd.end() ? it->second : controlValue(m, c, def); };
@@ -826,12 +865,11 @@ static AppliedControls applyControlPairs(const std::vector<std::pair<std::string
 
   g_link->applyControls(full);
   lastPoll = millis();
-  return {finalOn, finalMode, finalStage, finalRoom};
+  return {finalOn, finalMode, finalStage, finalRoom, true};
 }
 
 // GET /api/controls & POST /api/controls (V2 JSON + legacy compat)
 static void handleApiControls() {
-  sendCors();
   if (web.method() == HTTP_OPTIONS) { web.send(204); return; }
   const auto& m = g_link->model();
 
@@ -866,6 +904,14 @@ static void handleApiControls() {
     return;
   }
 
+  // Commands only on POST and PUT. Any other method is refused: a browser sends HEAD, for one, without saying
+  // which page asks, so it would get past the check on the page of origin (issue #77).
+  if (web.method() != HTTP_POST && web.method() != HTTP_PUT) {
+    web.sendHeader("Allow", "GET, POST, PUT");
+    web.send(405, "application/json", "{\"ok\":false,\"error\":\"method_not_allowed\"}");
+    return;
+  }
+
   // POST / PUT: every accepted form (JSON body, "k=v;" text, form or query arguments, name/value pair) is reduced to
   // name/value pairs and parsed by the same table (firenet_api.h). Later forms override earlier ones.
   std::string body = (web.hasArg("plain") ? web.arg("plain") : (web.hasArg("cmd") ? web.arg("cmd") : String())).c_str();
@@ -878,6 +924,11 @@ static void handleApiControls() {
   }
   if (web.hasArg("name") && web.hasArg("value")) pairs.push_back({web.arg("name").c_str(), web.arg("value").c_str()});
   const AppliedControls r = applyControlPairs(pairs);
+  if (!r.sent) {
+    web.sendHeader("Retry-After", "5");
+    web.send(503, "application/json", "{\"ok\":false,\"error\":\"stove_not_ready\",\"message\":\"The stove is not linked, or has not sent its settings yet. Nothing was sent; try again in a few seconds.\"}");
+    return;
+  }
   long finalOn = r.on, finalMode = r.mode, finalStage = r.stage, finalRoom = r.room;
 
   const char* modeName = (finalMode == 0) ? "manual" : ((finalMode == 1) ? "auto" : "comfort");
@@ -1024,11 +1075,10 @@ static void mqttApply(const MqttCommand& c) {
     DBG.printf("[mqtt] nothing to apply in %s\n", c.topic.c_str());
     return;
   }
-  if (!g_link->model().version_ack || g_link->model().controls_pos.empty()) {
-    DBG.println("[mqtt] command ignored: the stove is not linked");   // its current settings are not known yet
+  if (!applyControlPairs(pairs).sent) {
+    DBG.println("[mqtt] command ignored: the stove is not linked or has not sent its settings yet");
     return;
   }
-  applyControlPairs(pairs);
   DBG.printf("[mqtt] command applied from %s\n", c.topic.c_str());
 }
 
@@ -1252,7 +1302,6 @@ static String jsonEscape(const String& in) {
 // GET /api/mqtt: settings (the password is never returned) and connection status.
 // POST /api/mqtt: enabled, host, port, user, password, base_topic, discovery, tls, ca_certificate (JSON or form). A field left out keeps its value.
 static void handleMqtt() {
-  sendCors();
   if (web.method() == HTTP_OPTIONS) { web.send(204); return; }
   if (web.method() == HTTP_POST) {
     std::vector<std::pair<std::string, std::string>> kv;
@@ -1309,7 +1358,6 @@ static void handleMqtt() {
 
 // GET & POST /api/schedule
 static void handleApiSchedule() {
-  sendCors();
   if (web.method() == HTTP_OPTIONS) { web.send(204); return; }
   const auto& m = g_link->model();
 
@@ -1345,7 +1393,6 @@ static void handleApiSchedule() {
 
 // GET /log (compatibilité open-firenet) — envoyé par morceaux depuis le tampon circulaire.
 static void handleLog() {
-  sendCors();
   uint64_t total, pos;
   {
     std::lock_guard<std::mutex> lk(g_logMx);
@@ -1480,16 +1527,16 @@ void setup() {
     DBG.println("[mdns] http://open-firenet.local");
   }
 
-  web.enableCORS(true);
   web.on("/", handleRoot);
   web.on("/api/version", handleVersion);
   web.on("/api/state", handleState);
   web.on("/api/control", handleApiControls);
   web.on("/api/controls", handleApiControls);
   web.on("/api/schedule", handleApiSchedule);
-  web.on("/api/restart", handleRestart);
+  web.on("/api/restart", HTTP_POST, handleRestart);
   web.on("/api/txgap", handleTxGap);
   web.on("/api/mqtt", handleMqtt);
+  web.on("/api/access", handleAccess);
   web.on("/api/wifi", HTTP_POST, handleWifi);
   web.on("/api/forget", HTTP_POST, handleForget);
   web.on("/api/scan", handleScan);
@@ -1514,6 +1561,10 @@ void setup() {
   web.on("/log", handleLog);
 
   mqttLoadSettings();
+  static const char* WEB_HEADERS[] = {"Origin"};
+  web.collectHeaders(WEB_HEADERS, 1);
+  loadExtraHosts();
+  web.addMiddleware(webGuard);
   web.begin();
   DBG.println("[web] démarré (avec portail captif + compatibilité open-firenet)");
 }

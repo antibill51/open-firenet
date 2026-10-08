@@ -32,6 +32,10 @@ struct StoveModel {
   uint32_t frames_in = 0, frames_out = 0, last_rx_ms = 0;
   uint32_t rx_bytes = 0;   // every byte received from the stove, including the 0x16 probe: 0 means the stove never talked
   uint32_t detections = 0;    // times the stove acknowledged the version frame since boot
+  // The stove has posted its settings under their names since the link came up. Until then the values held here
+  // are defaults, or the unnamed values of a frame posted before the names were registered, whose positions are
+  // not known: a command built from them would write wrong settings (seen 2026-10-08: stove switched on at 100 %).
+  bool controls_synced = false;
   uint32_t link_losses = 0;   // times an acknowledged link was dropped by the stove since boot
 };
 
@@ -779,6 +783,7 @@ private:
     if (clean == "0" || (buf.find('\x02') != std::string::npos && buf.find('0') != std::string::npos)) {
       if (model_.version_ack) model_.link_losses++;
       model_.version_ack = false;
+      model_.controls_synced = false;
       model_.version_profile = -1;
       post_ack_probe_streak_ = 0;
       // Re-detection: start at the family that just worked (fast reacquire) rather than the full cycle,
@@ -799,6 +804,7 @@ private:
       if (++post_ack_probe_streak_ >= POST_ACK_PROBE_RESET_THRESHOLD) {
         model_.link_losses++;
         model_.version_ack = false;
+        model_.controls_synced = false;
         model_.version_profile = -1;
         post_ack_probe_streak_ = 0;
         detect_stage_ = last_good_stage_ >= 0 ? last_good_stage_ : DETECT_V3;
@@ -819,6 +825,8 @@ private:
       pending_pos_ = nullptr; parseStatus(buf); return;
     }
     if (buf.find("POST_CONTROLS") != std::string::npos) {
+      if (buf.find("onOff=") != std::string::npos && buf.find("mode=") != std::string::npos &&
+          buf.find("targetStage=") != std::string::npos && buf.find("roomTarget=") != std::string::npos) model_.controls_synced = true;
       // V1: named records (all after the registration, then only the changed ones): update the DOMO-indexed vector in place.
       if (induoDialect() &&
           parseV1Named(afterHeader(buf), ctrlIndexByName, model_.controls_pos, model_.controls) > 0) return;
