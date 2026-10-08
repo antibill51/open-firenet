@@ -25,6 +25,7 @@
 #include "esp_wifi.h"  // connexion STA robuste (méthode open-firenet, coexistence USB)
 #include "firenet_link.h"
 #include "firenet_api.h"
+#include "firenet_web_guard.h"
 #include "firenet_mqtt.h"
 #include <deque>
 #include "mqtt_client.h"   // esp-mqtt, Espressif's MQTT client shipped with the ESP32 core
@@ -34,7 +35,7 @@
 // Types used in function signatures are declared here, ahead of every function: the Arduino builder inserts its
 // generated prototypes before the first function of the sketch.
 // Base settings sent to the stove by applyControlPairs().
-struct AppliedControls { long on, mode, stage, room; };
+struct AppliedControls { long on, mode, stage, room; bool sent; };   // sent: false when the command was refused
 
 // MQTT settings (the logic is further down, in the MQTT section).
 struct MqttSettings {
@@ -44,6 +45,7 @@ struct MqttSettings {
 };
 static MqttSettings g_mqttCfg;
 static volatile bool g_mqttConnected = false;
+static String jsonHealth(bool forMqtt);   // defined with the bridge health code
 struct MqttCommand { std::string topic, payload; };
 
 // Avec CDCOnBoot=default (désactivé), le core ne démarre pas l'USB de lui-même :
@@ -52,7 +54,7 @@ USBCDC USBSerial;
 
 // --------------------------------------------------------- version & config USB
 #ifndef OPENFIRENET_VERSION
-#define OPENFIRENET_VERSION "3.6.1"
+#define OPENFIRENET_VERSION "3.7.0"
 #endif
 
 // Identifiants USB Open Firenet
@@ -374,7 +376,7 @@ static String jsonState() {
     "},",
     (WiFi.getMode()==WIFI_AP?WiFi.softAPIP():WiFi.localIP()).toString().c_str(),
     WiFi.macAddress().c_str(),
-    WiFi.SSID().c_str(),
+    jsonEscape(WiFi.SSID()).c_str(),   // a network name may contain quotes
     WiFi.RSSI(),
     millis() / 1000UL,
     ESP.getFreeHeap(),
@@ -401,6 +403,7 @@ static String jsonState() {
   // board's UART/COM port, when the cable has no data wires, or when the stove is off.
   j += "\"usb\":{\"host_connected\":" + String((bool)USB ? "true" : "false") + ",\"rx_bytes\":" + String(m.rx_bytes) + "},";
   j += "\"mqtt\":{\"enabled\":" + String(g_mqttCfg.enabled ? "true" : "false") + ",\"connected\":" + String(g_mqttConnected ? "true" : "false") + "},";
+  j += jsonHealth(false) + ",";
   j += "\"frames_in\":" + String(m.frames_in) + ",";
   j += "\"frames_out\":" + String(m.frames_out) + ",";
   j += "\"revision\":" + String((long)m.revision) + ",";
@@ -421,7 +424,7 @@ static String jsonState() {
   for (auto& kv : m.status) {
     if (!first) j += ","; first = false;
     String val = (kv.first == "wpa2" && !kv.second.empty() && kv.second != "0") ? "********" : String(kv.second.c_str());
-    j += "\"" + String(kv.first.c_str()) + "\":\"" + val + "\"";
+    j += "\"" + jsonEscape(String(kv.first.c_str())) + "\":\"" + jsonEscape(val) + "\"";
   }
   j += "},";
 
@@ -437,9 +440,8 @@ static String jsonState() {
   return j;
 }
 
-static void handleState()   { sendCors(); web.send(200, "application/json", jsonState()); }
+static void handleState()   { web.send(200, "application/json", jsonState()); }
 static void handleVersion() {
-  sendCors();
   char buf[220];
   snprintf(buf, sizeof(buf),
     "{\"app\":\"Open Firenet\",\"version\":\"" OPENFIRENET_VERSION "\",\"build_date\":\"%s\",\"build_time\":\"%s\",\"target\":\"ESP32-S3\"}",
@@ -456,7 +458,6 @@ static void handleRoot() {
 // GET/POST /api/txgap : délai entre trames envoyées au poêle (ms), borné à 50..600.
 // Pris en compte dès la prochaine évaluation de la file d'émission ; conservé en NVS.
 static void handleTxGap() {
-  sendCors();
   if (web.method() == HTTP_OPTIONS) { web.send(204); return; }
   if (web.method() == HTTP_POST) {
     long ms = 0;
@@ -478,10 +479,67 @@ static void handleTxGap() {
   web.send(200, "application/json", buf);
 }
 
+// ---------------------------------------------------------------- bridge health (issue #74)
+// Cause of the last restart. The chip tells power-on, brown-out, crash and watchdog by itself; for a restart the
+// firmware asks for, it only says "software". The reason is then left in memory that survives a software restart
+// but not a power cut (RTC, no flash wear), with a marker so that leftovers are never read as a reason.
+enum RestartNote : uint32_t { NOTE_NONE = 0, NOTE_USER, NOTE_WIFI_CHANGE, NOTE_UPDATE, NOTE_STOVE_SILENT };
+static const uint32_t RESTART_NOTE_MAGIC = 0x0F17E7A5;
+RTC_NOINIT_ATTR static uint32_t g_restartNoteMagic;
+RTC_NOINIT_ATTR static uint32_t g_restartNote;
+static const char* g_restartReason = "unknown";
+static volatile uint32_t g_wifiDisconnects = 0;   // Wi-Fi drops after a successful connection, since boot
+static volatile bool     g_wifiUp = false;
+static volatile uint32_t g_mqttDisconnects = 0;   // broker connections lost, since boot
+
+// (uint32_t, not RestartNote: the Arduino build puts its generated prototypes above the enum)
+static void noteRestart(uint32_t note) { g_restartNote = note; g_restartNoteMagic = RESTART_NOTE_MAGIC; }
+static void restartBecause(uint32_t note) { noteRestart(note); ESP.restart(); }
+
+// Called once at boot, before anything can ask for a restart.
+static void readRestartReason() {
+  uint32_t note = (g_restartNoteMagic == RESTART_NOTE_MAGIC) ? g_restartNote : (uint32_t)NOTE_NONE;
+  g_restartNoteMagic = 0; g_restartNote = NOTE_NONE;
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON:  g_restartReason = "power_on"; break;
+    case ESP_RST_BROWNOUT: g_restartReason = "brownout"; break;
+    case ESP_RST_PANIC:    g_restartReason = "crash"; break;
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:      g_restartReason = "watchdog"; break;
+    case ESP_RST_EXT:      g_restartReason = "reset_button"; break;
+    case ESP_RST_USB:      g_restartReason = "usb"; break;
+    case ESP_RST_SW:
+      g_restartReason = note == NOTE_USER ? "user" : note == NOTE_WIFI_CHANGE ? "wifi_change"
+                      : note == NOTE_UPDATE ? "update" : note == NOTE_STOVE_SILENT ? "stove_silent" : "software";
+      break;
+    default:               g_restartReason = "unknown"; break;
+  }
+}
+
+// The "health" object of /api/state. `forMqtt` leaves out the value that changes every second (age of the last
+// frame) and rounds the temperature, so that the published state only changes when something happened.
+static String jsonHealth(bool forMqtt) {
+  const auto& m = g_link->model();
+  float t = temperatureRead();
+  String j = "\"health\":{";
+  j += "\"restart_reason\":\"" + String(g_restartReason) + "\",";
+  j += "\"min_free_heap\":" + String((unsigned)ESP.getMinFreeHeap()) + ",";
+  j += "\"chip_temperature\":" + (isnan(t) ? String("null") : (forMqtt ? String((int)lroundf(t)) : String(t, 1))) + ",";
+  j += "\"wifi_disconnects\":" + String((unsigned)g_wifiDisconnects) + ",";
+  if (!forMqtt) {
+    j += "\"stove_last_frame_seconds\":" + (m.rx_bytes == 0 ? String("null") : String((millis() - m.last_rx_ms) / 1000UL)) + ",";
+  }
+  j += "\"stove_detections\":" + String(m.detections) + ",";
+  j += "\"stove_link_losses\":" + String(m.link_losses) + ",";
+  j += "\"mqtt_disconnects\":" + String((unsigned)g_mqttDisconnects);
+  j += "}";
+  return j;
+}
+
 static void handleRestart() {
-  sendCors();
   web.send(200, "application/json", "{\"ok\":true,\"reboot\":true}");
-  delay(300); ESP.restart();
+  delay(300); restartBecause(NOTE_USER);
 }
 
 
@@ -520,13 +578,13 @@ static void handleWifi() {
     "<a href=\"http://open-firenet.local\" style=\"display:inline-block;width:100%;"
     "box-sizing:border-box;background:#38bdf8;color:#0c0f17;font-weight:700;padding:14px;"
     "border-radius:10px;text-decoration:none\">http://open-firenet.local</a></div></body></html>");
-  delay(300); ESP.restart();
+  delay(300); restartBecause(NOTE_WIFI_CHANGE);
 }
 // POST /api/forget -> efface le WiFi, repasse en AP au prochain boot
 static void handleForget() {
   prefs.begin("firenet", false); prefs.clear(); prefs.end();
   web.send(200,"application/json","{\"ok\":true}");
-  delay(300); ESP.restart();
+  delay(300); restartBecause(NOTE_WIFI_CHANGE);
 }
 
 // Option C — provisioning par commande série (UART0 DBG et CDC TinyUSB STOVE) :
@@ -549,7 +607,7 @@ static bool applySetWifi(const String& line, Print& out) {
         out.printf("[wifi] SETWIFI OK ssid=\"%s\" -> reboot STA\r\n", ssid.c_str());
         out.flush();
       }
-      delay(200); ESP.restart();
+      delay(200); restartBecause(NOTE_WIFI_CHANGE);
       return true;
     } else {
       DBG.println("[wifi] SETWIFI: format attendu -> SETWIFI:<ssid>:<password>");
@@ -621,7 +679,6 @@ static void handleCaptiveRedirect() {
 
 // GET /api/scan -> scanne les réseaux 2.4 GHz et renvoie un tableau JSON
 static void handleScan() {
-  sendCors();
   int n = WiFi.scanComplete();
   if (n == -2) {
     WiFi.scanNetworks(true);
@@ -645,7 +702,7 @@ static void handleScan() {
     seen.push_back(ssid);
 
     if (count > 0) json += ",";
-    json += "{\"ssid\":\"" + ssid + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
+    json += "{\"ssid\":\"" + jsonEscape(ssid) + "\",\"rssi\":" + String(WiFi.RSSI(i)) + "}";
     count++;
   }
   json += "]";
@@ -720,16 +777,58 @@ static void onUsbCdcLineCoding(void* arg, esp_event_base_t base, int32_t id, voi
   logEntry("usb", b);
 }
 
-static void sendCors() {
-  web.sendHeader("Access-Control-Allow-Origin", "*");
-  web.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  web.sendHeader("Access-Control-Allow-Headers", "*");
+// The API answers its own page and clients that are not browsers; a page of another website gets a 403 before
+// any handler runs (see firenet_web_guard.h, issue #77). No Access-Control-Allow-Origin is sent any more.
+// Domains added by the owner in the Bridge tab (section Access), kept in the settings.
+static std::vector<std::string> g_extraHosts;
+static void loadExtraHosts() {
+  prefs.begin("firenet", true);
+  g_extraHosts = firenet::webguard::parseExtraHosts(prefs.getString("web_hosts", "").c_str());
+  prefs.end();
+}
+
+static bool webGuard(WebServer& server, Middleware::Callback next) {
+  std::string path = server.uri().c_str();
+  std::string host = server.hostHeader().c_str();
+  std::string origin = server.header("Origin").c_str();
+  if (firenet::webguard::requestAllowed(path, host, origin, g_extraHosts)) return next();
+  DBG.printf("[web] refused %s (Host \"%s\", Origin \"%s\")\n", path.c_str(), host.c_str(), origin.c_str());
+  std::string ip = (WiFi.getMode() == WIFI_AP ? WiFi.softAPIP() : WiFi.localIP()).toString().c_str();
+  server.send(403, "application/json", firenet::webguard::refusalJson(host, origin, ip, g_extraHosts).c_str());
+  return true;
+}
+
+// GET /api/access: the domains added by the owner, and the name this request was addressed to.
+// POST /api/access: extra_hosts (JSON or form), free text with one domain per line; an empty text removes them all.
+static void handleAccess() {
+  if (web.method() == HTTP_POST) {
+    std::vector<std::pair<std::string, std::string>> kv;
+    firenet::jsonPairs(web.hasArg("plain") ? web.arg("plain").c_str() : "", kv);
+    for (int i = 0; i < web.args(); i++) if (web.argName(i) != "plain") kv.push_back({web.argName(i).c_str(), web.arg(i).c_str()});
+    for (const auto& p : kv) if (p.first == "extra_hosts") {
+      String text = p.second.c_str();
+      text.replace("\\n", "\n"); text.replace("\\r", "");          // JSON carries the line breaks as "\n"
+      auto hosts = firenet::webguard::parseExtraHosts(text.c_str());
+      prefs.begin("firenet", false);
+      prefs.putString("web_hosts", firenet::webguard::joinExtraHosts(hosts).c_str());
+      prefs.end();
+      g_extraHosts = hosts;
+    }
+  }
+  String j = "{\"ok\":true,\"extra_hosts\":[";
+  for (size_t i = 0; i < g_extraHosts.size(); i++) j += String(i ? "," : "") + "\"" + g_extraHosts[i].c_str() + "\"";
+  j += "],\"max_extra_hosts\":" + String((unsigned)firenet::webguard::MAX_EXTRA_HOSTS);
+  j += ",\"host\":\"" + jsonEscape(String(firenet::webguard::hostName(web.hostHeader().c_str()).c_str())) + "\"}";
+  web.send(200, "application/json", j);
 }
 
 // Applies commanded name/value pairs (any name accepted by firenet_api.h) to the stove; shared by the REST API and
 // MQTT. The base settings it ends up sending are returned for the answer.
 static AppliedControls applyControlPairs(const std::vector<std::pair<std::string, std::string>>& pairs) {
   const auto& m = g_link->model();
+  // A command is the stove's current settings plus the commanded ones: nothing is sent before the stove has posted
+  // its settings under their names (a few seconds after the link comes up), see Model::controls_synced.
+  if (!m.version_ack || !m.controls_synced) return {0, 0, 0, 0, false};
   const auto cmd = firenet::parseControlCommands(pairs);
   auto has = [&](const char* c) { return cmd.find(c) != cmd.end(); };
   auto get = [&](const char* c, long def) { auto it = cmd.find(c); return it != cmd.end() ? it->second : controlValue(m, c, def); };
@@ -766,12 +865,11 @@ static AppliedControls applyControlPairs(const std::vector<std::pair<std::string
 
   g_link->applyControls(full);
   lastPoll = millis();
-  return {finalOn, finalMode, finalStage, finalRoom};
+  return {finalOn, finalMode, finalStage, finalRoom, true};
 }
 
 // GET /api/controls & POST /api/controls (V2 JSON + legacy compat)
 static void handleApiControls() {
-  sendCors();
   if (web.method() == HTTP_OPTIONS) { web.send(204); return; }
   const auto& m = g_link->model();
 
@@ -806,6 +904,14 @@ static void handleApiControls() {
     return;
   }
 
+  // Commands only on POST and PUT. Any other method is refused: a browser sends HEAD, for one, without saying
+  // which page asks, so it would get past the check on the page of origin (issue #77).
+  if (web.method() != HTTP_POST && web.method() != HTTP_PUT) {
+    web.sendHeader("Allow", "GET, POST, PUT");
+    web.send(405, "application/json", "{\"ok\":false,\"error\":\"method_not_allowed\"}");
+    return;
+  }
+
   // POST / PUT: every accepted form (JSON body, "k=v;" text, form or query arguments, name/value pair) is reduced to
   // name/value pairs and parsed by the same table (firenet_api.h). Later forms override earlier ones.
   std::string body = (web.hasArg("plain") ? web.arg("plain") : (web.hasArg("cmd") ? web.arg("cmd") : String())).c_str();
@@ -818,6 +924,11 @@ static void handleApiControls() {
   }
   if (web.hasArg("name") && web.hasArg("value")) pairs.push_back({web.arg("name").c_str(), web.arg("value").c_str()});
   const AppliedControls r = applyControlPairs(pairs);
+  if (!r.sent) {
+    web.sendHeader("Retry-After", "5");
+    web.send(503, "application/json", "{\"ok\":false,\"error\":\"stove_not_ready\",\"message\":\"The stove is not linked, or has not sent its settings yet. Nothing was sent; try again in a few seconds.\"}");
+    return;
+  }
   long finalOn = r.on, finalMode = r.mode, finalStage = r.stage, finalRoom = r.room;
 
   const char* modeName = (finalMode == 0) ? "manual" : ((finalMode == 1) ? "auto" : "comfort");
@@ -890,7 +1001,7 @@ static void mqttEvent(void*, esp_event_base_t, int32_t id, void* data) {
       g_mqttError = 0; g_mqttTlsError = 0; g_mqttFresh = true; g_mqttConnected = true;
       break;
     case MQTT_EVENT_DISCONNECTED:
-      if (g_mqttConnected) g_mqttError = -3;
+      if (g_mqttConnected) { g_mqttError = -3; g_mqttDisconnects++; }
       g_mqttConnected = false;
       break;
     case MQTT_EVENT_ERROR:
@@ -964,11 +1075,10 @@ static void mqttApply(const MqttCommand& c) {
     DBG.printf("[mqtt] nothing to apply in %s\n", c.topic.c_str());
     return;
   }
-  if (!g_link->model().version_ack || g_link->model().controls_pos.empty()) {
-    DBG.println("[mqtt] command ignored: the stove is not linked");   // its current settings are not known yet
+  if (!applyControlPairs(pairs).sent) {
+    DBG.println("[mqtt] command ignored: the stove is not linked or has not sent its settings yet");
     return;
   }
-  applyControlPairs(pairs);
   DBG.printf("[mqtt] command applied from %s\n", c.topic.c_str());
 }
 
@@ -1127,7 +1237,7 @@ static void mqttPublish() {
   snprintf(dev, sizeof dev, "{\"device\":{\"version\":\"" OPENFIRENET_VERSION "\",\"connected\":%s,\"ip\":\"%s\"}",
            linked ? "true" : "false", WiFi.localIP().toString().c_str());
   // Before the stove is linked its values are not known: only the "device" object is published.
-  String state = String(dev) + (linked ? "," + jsonStoveSections() : String()) + "}";
+  String state = String(dev) + "," + jsonHealth(true) + (linked ? "," + jsonStoveSections() : String()) + "}";
   uint32_t now = millis();
   bool changed = state != g_mqttLastState;
   if ((changed && (g_mqttLastState.isEmpty() || now - g_mqttLastStateMs >= 5000)) || now - g_mqttLastStateMs >= 60000) {
@@ -1192,7 +1302,6 @@ static String jsonEscape(const String& in) {
 // GET /api/mqtt: settings (the password is never returned) and connection status.
 // POST /api/mqtt: enabled, host, port, user, password, base_topic, discovery, tls, ca_certificate (JSON or form). A field left out keeps its value.
 static void handleMqtt() {
-  sendCors();
   if (web.method() == HTTP_OPTIONS) { web.send(204); return; }
   if (web.method() == HTTP_POST) {
     std::vector<std::pair<std::string, std::string>> kv;
@@ -1249,7 +1358,6 @@ static void handleMqtt() {
 
 // GET & POST /api/schedule
 static void handleApiSchedule() {
-  sendCors();
   if (web.method() == HTTP_OPTIONS) { web.send(204); return; }
   const auto& m = g_link->model();
 
@@ -1285,7 +1393,6 @@ static void handleApiSchedule() {
 
 // GET /log (compatibilité open-firenet) — envoyé par morceaux depuis le tampon circulaire.
 static void handleLog() {
-  sendCors();
   uint64_t total, pos;
   {
     std::lock_guard<std::mutex> lk(g_logMx);
@@ -1325,6 +1432,7 @@ static void handleLog() {
 
 // --------------------------------------------------------------------- setup
 void setup() {
+  readRestartReason();
   DBG.begin(115200);
   DBG.println("\n[Open Firenet] boot");
   buildNames();
@@ -1379,10 +1487,11 @@ void setup() {
     WiFi.mode(WIFI_STA);
     esp_wifi_set_ps(WIFI_PS_NONE);
     WiFi.onEvent([](WiFiEvent_t e, WiFiEventInfo_t info){
-      if (e == ARDUINO_EVENT_WIFI_STA_DISCONNECTED)
+      if (e == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
         DBG.printf("[wifi] DISCONNECTED reason=%d\n", info.wifi_sta_disconnected.reason);
-      else if (e == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
-        g_staConnected = true;
+        if (g_wifiUp) { g_wifiUp = false; g_wifiDisconnects++; }
+      } else if (e == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
+        g_staConnected = true; g_wifiUp = true;
         DBG.printf("[wifi] GOT_IP %s\n", WiFi.localIP().toString().c_str());
         g_link->setCredentials(wifiSsid.c_str(), wifiPass.c_str(),
                                WiFi.localIP().toString().c_str(), WiFi.macAddress().c_str());
@@ -1397,7 +1506,9 @@ void setup() {
       wifi_config_t conf = {};
       memcpy(conf.sta.ssid,     wifiSsid.c_str(), min((size_t)wifiSsid.length(), (size_t)32));
       memcpy(conf.sta.password, wifiPass.c_str(), min((size_t)wifiPass.length(), (size_t)64));
-      conf.sta.threshold.authmode = WIFI_AUTH_OPEN;
+      // With a password, only an encrypted network is accepted: an open access point (or an old WEP one) that
+      // shows the same name is not joined. Without a password the network is meant to be open.
+      conf.sta.threshold.authmode = wifiPass.length() > 0 ? WIFI_AUTH_WPA_PSK : WIFI_AUTH_OPEN;
       conf.sta.pmf_cfg.capable    = true;
       conf.sta.pmf_cfg.required   = false;
       esp_wifi_set_config(WIFI_IF_STA, &conf);
@@ -1410,6 +1521,7 @@ void setup() {
   }
 
   ArduinoOTA.setHostname("open-firenet");
+  ArduinoOTA.onEnd([]() { noteRestart(NOTE_UPDATE); });   // the update library restarts the chip by itself
   ArduinoOTA.begin();
 
   if (MDNS.begin("open-firenet")) {
@@ -1417,16 +1529,16 @@ void setup() {
     DBG.println("[mdns] http://open-firenet.local");
   }
 
-  web.enableCORS(true);
   web.on("/", handleRoot);
   web.on("/api/version", handleVersion);
   web.on("/api/state", handleState);
   web.on("/api/control", handleApiControls);
   web.on("/api/controls", handleApiControls);
   web.on("/api/schedule", handleApiSchedule);
-  web.on("/api/restart", handleRestart);
+  web.on("/api/restart", HTTP_POST, handleRestart);
   web.on("/api/txgap", handleTxGap);
   web.on("/api/mqtt", handleMqtt);
+  web.on("/api/access", handleAccess);
   web.on("/api/wifi", HTTP_POST, handleWifi);
   web.on("/api/forget", HTTP_POST, handleForget);
   web.on("/api/scan", handleScan);
@@ -1451,6 +1563,10 @@ void setup() {
   web.on("/log", handleLog);
 
   mqttLoadSettings();
+  static const char* WEB_HEADERS[] = {"Origin"};
+  web.collectHeaders(WEB_HEADERS, 1);
+  loadExtraHosts();
+  web.addMiddleware(webGuard);
   web.begin();
   DBG.println("[web] démarré (avec portail captif + compatibilité open-firenet)");
 }
@@ -1490,7 +1606,7 @@ void loop() {
   if (g_link->model().version_ack &&
       (millis() - g_link->model().last_rx_ms) > RX_TIMEOUT_MS) {
     DBG.printf("[wd] aucun RX depuis %lus -> ESP.restart()\n", RX_TIMEOUT_MS / 1000);
-    delay(50); ESP.restart();
+    delay(50); restartBecause(NOTE_STOVE_SILENT);
   }
 
   // 2) cycle de lecture périodique une fois la version acquittée

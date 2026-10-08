@@ -56,18 +56,13 @@ body:
       label: What the stove screen shows
       description: Any message or code (for example UW29), and on which screen.
   - type: textarea
-    id: state
+    id: diagnostic
     attributes:
-      label: Output of /api/state
-      description: Open `http://open-firenet.local/api/state` (or the bridge's IP address) and paste the whole text. It contains your Wi-Fi name and the bridge's addresses; remove them if you prefer.
-      render: json
-  - type: textarea
-    id: log
-    attributes:
-      label: Log
+      label: Diagnostic file
       description: |
-        On the bridge's page: Diagnostics tab, then Download in the exchange log (on firmware 3.2.0 and older: CDC Logs tab). Take it one to two minutes after switching the stove on, and drag the file here.
-        The log hides your Wi-Fi password.
+        On the bridge's page: Diagnostics tab, then "Diagnostic file", and drag the file here. Take it one to two minutes after switching the stove on, or right after the problem shows.
+        It holds the bridge health, the link, every value and the exchange log. Your Wi-Fi name and the bridge's MAC address are masked in it, and the Wi-Fi password is never included.
+        On bridge firmware 3.6.1 and older there is no such button: paste the text of `http://open-firenet.local/api/state` and attach the log (Diagnostics tab, Download in the exchange log).
   - type: textarea
     id: more
     attributes:

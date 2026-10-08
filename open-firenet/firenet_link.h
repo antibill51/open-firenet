@@ -31,6 +31,12 @@ struct StoveModel {
   int  version_profile = -1;                   // acknowledged version frame: -1 none, 0 = V3, 1 = V1
   uint32_t frames_in = 0, frames_out = 0, last_rx_ms = 0;
   uint32_t rx_bytes = 0;   // every byte received from the stove, including the 0x16 probe: 0 means the stove never talked
+  uint32_t detections = 0;    // times the stove acknowledged the version frame since boot
+  // The stove has posted its settings under their names since the link came up. Until then the values held here
+  // are defaults, or the unnamed values of a frame posted before the names were registered, whose positions are
+  // not known: a command built from them would write wrong settings (seen 2026-10-08: stove switched on at 100 %).
+  bool controls_synced = false;
+  uint32_t link_losses = 0;   // times an acknowledged link was dropped by the stove since boot
 };
 
 class DongleLink {
@@ -740,6 +746,7 @@ private:
     // since moved past (retry timeout) is ignored rather than locking onto a family we did not just ask about.
     if (buf.find("GET_WIFI_VERSION_FINISHED") != std::string::npos) {
       if (detect_stage_ == DETECT_V1) {
+        if (!model_.version_ack) model_.detections++;   // counted once: some stoves acknowledge twice in a row
         model_.generation = 2; model_.version_ack = true;
         model_.version_profile = DETECT_V1; last_good_stage_ = DETECT_V1; post_ack_probe_streak_ = 0;
         pushStatus();
@@ -748,6 +755,7 @@ private:
     }
     if (buf.find("GET_CDCDEVICE_VERSION_FINISHED") != std::string::npos) {
       if (detect_stage_ == DETECT_V3 || detect_stage_ == DETECT_V28) {
+        if (!model_.version_ack) model_.detections++;   // counted once: some stoves acknowledge twice in a row
         model_.generation = 1; model_.version_ack = true;               // 2.28 reuses the DOMO/V3 protocol, see stageProfile
         model_.version_profile = detect_stage_; last_good_stage_ = detect_stage_; post_ack_probe_streak_ = 0;
         // 2.28 only (not DOMO/V3): push the status right away, in the CDC dialect (the flow a real LIVO 2.28
@@ -779,7 +787,9 @@ private:
     // after ~99 loop passes without any received byte it sends 02, 30, 03 once (three one-byte transfers)
     // and discards whatever it receives meanwhile. So seeing it means the stove is in that update state.
     if (clean == "0" || (buf.find('\x02') != std::string::npos && buf.find('0') != std::string::npos)) {
+      if (model_.version_ack) model_.link_losses++;
       model_.version_ack = false;
+      model_.controls_synced = false;
       model_.version_profile = -1;
       post_ack_probe_streak_ = 0;
       // Re-detection: start at the family that just worked (fast reacquire) rather than the full cycle,
@@ -798,7 +808,9 @@ private:
     // sensors reading 0. Re-arm the handshake after a short streak instead.
     if (model_.version_ack && looksLikeProbe) {
       if (++post_ack_probe_streak_ >= POST_ACK_PROBE_RESET_THRESHOLD) {
+        model_.link_losses++;
         model_.version_ack = false;
+        model_.controls_synced = false;
         model_.version_profile = -1;
         post_ack_probe_streak_ = 0;
         detect_stage_ = last_good_stage_ >= 0 ? last_good_stage_ : DETECT_V3;
@@ -819,6 +831,8 @@ private:
       pending_pos_ = nullptr; parseStatus(buf); return;
     }
     if (buf.find("POST_CONTROLS") != std::string::npos) {
+      if (buf.find("onOff=") != std::string::npos && buf.find("mode=") != std::string::npos &&
+          buf.find("targetStage=") != std::string::npos && buf.find("roomTarget=") != std::string::npos) model_.controls_synced = true;
       // V1: named records (all after the registration, then only the changed ones): update the DOMO-indexed vector in place.
       if (induoDialect() &&
           parseV1Named(afterHeader(buf), ctrlIndexByName, model_.controls_pos, model_.controls) > 0) return;

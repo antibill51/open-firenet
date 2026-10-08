@@ -77,6 +77,16 @@
   "enabled": true,
   "connected": true
  },
+ "health": {
+  "restart_reason": "update",
+  "min_free_heap": 61772,
+  "chip_temperature": 46.8,
+  "wifi_disconnects": 0,
+  "stove_last_frame_seconds": 1,
+  "stove_detections": 1,
+  "stove_link_losses": 0,
+  "mqtt_disconnects": 0
+ },
  "frames_in": 212,
  "frames_out": 792,
  "revision": 0,
