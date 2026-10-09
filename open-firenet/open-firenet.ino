@@ -420,6 +420,10 @@ static String jsonStoveSections() {
   char roomTempS[16] = "null";
   if (roomSensor) snprintf(roomTempS, sizeof roomTempS, "%.1f", rTempF);
 
+  char targetTempS[16] = "null";
+  // In manual mode (mode 0), regulation is done via power %, not target temperature.
+  if (curMode != 0) snprintf(targetTempS, sizeof targetTempS, "%.1f", rTargetF);
+
   char logHoursS[16] = "null";
   if (logHours >= 0) snprintf(logHoursS, sizeof logHoursS, "%ld", logHours / 60);
 
@@ -465,7 +469,7 @@ static String jsonStoveSections() {
       "\"on\":%s,"
       "\"mode\":\"%s\","
       "\"mode_code\":%ld,"
-      "\"target_temperature\":%.1f,"
+      "\"target_temperature\":%s,"
       "\"power_percent\":%ld,"
       "\"room_power_request\":%ld,"
       "\"heating_times_active\":%s,"
@@ -496,7 +500,7 @@ static String jsonStoveSections() {
     (extReq != 0) ? "true" : "false",
     (WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : 0,
     (curOn == 1) ? "true" : "false",
-    modeName, curMode, rTargetF, curStage, roomPwrReq,
+    modeName, curMode, targetTempS, curStage, roomPwrReq,
     (htActive == 1) ? "true" : "false", sbTempF,
     (fan1On == 1) ? "true" : "false", fan1Level, fan1Area,
     (fan2On == 1) ? "true" : "false", fan2Level, fan2Area,
@@ -1204,6 +1208,7 @@ static uint32_t g_mqttLastStateMs = 0;
 static size_t g_mqttDiscNext = SIZE_MAX;      // next entity to announce; SIZE_MAX = nothing to send
 static bool g_mqttDiscRemove = false;
 static String g_mqttDiscModel;                // model name the entities were announced with
+static firenet::mqtt::FeatureFlags g_mqttDiscFeatures; // stove features the entities were announced with
 
 // Runs in the client's task: no access to the stove link from here.
 static void mqttEvent(void*, esp_event_base_t, int32_t id, void* data) {
@@ -1429,10 +1434,13 @@ static void mqttDiscoveryStep() {
   dev.url = std::string("http://") + WiFi.localIP().toString().c_str();
   if (g_link) {
     const auto& m = g_link->model();
-    dev.features.has_air_flaps = (m.sensors.find("airFlaps") != m.sensors.end());
-    dev.features.has_log_runtime = (m.sensors.find("logRuntime") != m.sensors.end());
-    dev.features.has_multiair1 = (controlValue(m, "convectionFan1Active", -1) >= 0 || m.controls.find("convectionFan1Active") != m.controls.end() || m.controls_pos.size() > 23);
-    dev.features.has_multiair2 = (controlValue(m, "convectionFan2Active", -1) >= 0 || m.controls.find("convectionFan2Active") != m.controls.end() || m.controls_pos.size() > 26);
+    // Only infer features once the stove has sent its actual sensor records.
+    if (!m.sensors_pos.empty()) {
+      dev.features.has_air_flaps = (sensorValue(m, "ecoModePossible", 0) == 1) || (m.sensors.find("airFlaps") != m.sensors.end());
+      dev.features.has_log_runtime = (m.sensors.find("logRuntime") != m.sensors.end());
+      dev.features.has_multiair1 = (controlValue(m, "convectionFan1Active", -1) >= 0 || m.controls.find("convectionFan1Active") != m.controls.end() || m.controls_pos.size() > 23);
+      dev.features.has_multiair2 = (controlValue(m, "convectionFan2Active", -1) >= 0 || m.controls.find("convectionFan2Active") != m.controls.end() || m.controls_pos.size() > 26);
+    }
   }
   std::string topic, payload;
   for (int n = 0; n < 4; n++) {
@@ -1452,10 +1460,21 @@ static void mqttPublish() {
   const auto& m = g_link->model();
   bool linked = m.version_ack && !m.sensors_pos.empty();
   if (g_mqttCfg.discovery) {
-    // Announce again once the stove has told its model, so that the device shows it.
+    // Announce again once the stove has told its model or if features changed, so that HA entities are updated.
     long modelId = sensorValue(m, "model", -1);
     String model = (linked && modelId >= 0) ? String(getStoveModelName(modelId)) : String();
-    if (model != g_mqttDiscModel && !g_mqttDiscRemove) { g_mqttDiscModel = model; g_mqttDiscNext = 0; }
+    firenet::mqtt::FeatureFlags curFeatures;
+    if (linked) {
+      curFeatures.has_air_flaps = (sensorValue(m, "ecoModePossible", 0) == 1) || (m.sensors.find("airFlaps") != m.sensors.end());
+      curFeatures.has_log_runtime = (m.sensors.find("logRuntime") != m.sensors.end());
+      curFeatures.has_multiair1 = (controlValue(m, "convectionFan1Active", -1) >= 0 || m.controls.find("convectionFan1Active") != m.controls.end() || m.controls_pos.size() > 23);
+      curFeatures.has_multiair2 = (controlValue(m, "convectionFan2Active", -1) >= 0 || m.controls.find("convectionFan2Active") != m.controls.end() || m.controls_pos.size() > 26);
+    }
+    if ((model != g_mqttDiscModel || curFeatures != g_mqttDiscFeatures) && !g_mqttDiscRemove) {
+      g_mqttDiscModel = model;
+      g_mqttDiscFeatures = curFeatures;
+      g_mqttDiscNext = 0;
+    }
   }
   mqttDiscoveryStep();
   char dev[160];

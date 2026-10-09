@@ -35,7 +35,7 @@ int main() {
 
   // --- Home Assistant discovery
   {
-    mqtt::DiscoveryDevice dev{"openfirenet_45eac8", "home/stove", "DOMO", "3.4.0", "http://192.168.1.50"};
+    mqtt::DiscoveryDevice dev{"openfirenet_45eac8", "home/stove", "DOMO", "3.4.0", "http://192.168.1.50", {true, true, true, true}};
     std::string topic, payload;
     size_t n = mqtt::discoveryCount();
     CH("discovery: at least 20 entities", n >= 20);
@@ -84,11 +84,18 @@ int main() {
     bool maskedFound = false;
     for (size_t i = 0; i < n; i++) {
       mqtt::discoveryEntity(i, maskedDev, false, topic, payload);
-      if (topic.find("multiair") != std::string::npos || topic.find("air_flaps") != std::string::npos || topic.find("hours_logs") != std::string::npos) {
+      if (topic.find("multiair") != std::string::npos || topic.find("air_flaps") != std::string::npos ||
+          topic.find("hours_logs") != std::string::npos || topic.find("eco_mode") != std::string::npos) {
         if (payload.empty()) maskedFound = true;
       }
     }
     CH("discovery: unsupported features produce empty payload for masking", maskedFound);
+
+    // Climate temperature state template check
+    mqtt::discoveryEntity(0, dev, false, topic, payload);
+    CH("discovery: climate has temperature_state_template filtering null/0",
+       payload.find("temperature_state_template") != std::string::npos &&
+       payload.find("None if value == 'null' or value == '0'") != std::string::npos);
   }
 
   std::cout << "mqtt: " << ok << " ok, " << ko << " failed\n";

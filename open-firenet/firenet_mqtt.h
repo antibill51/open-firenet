@@ -50,10 +50,18 @@ inline bool commandTopic(const std::string& base, const std::string& topic, std:
 // One retained configuration message per entity, under homeassistant/<component>/<device id>/<key>/config. The
 // entities read the per-value topics (<base>/sensors/..., <base>/controls/...) and command <base>/set/<name>.
 struct FeatureFlags {
-  bool has_air_flaps = true;
-  bool has_log_runtime = true;
-  bool has_multiair1 = true;
-  bool has_multiair2 = true;
+  bool has_air_flaps = false;
+  bool has_log_runtime = false;
+  bool has_multiair1 = false;
+  bool has_multiair2 = false;
+
+  bool operator==(const FeatureFlags& o) const {
+    return has_air_flaps == o.has_air_flaps &&
+           has_log_runtime == o.has_log_runtime &&
+           has_multiair1 == o.has_multiair1 &&
+           has_multiair2 == o.has_multiair2;
+  }
+  bool operator!=(const FeatureFlags& o) const { return !(*this == o); }
 };
 
 // ---- Home Assistant MQTT discovery (issue #54)
@@ -65,7 +73,7 @@ struct DiscoveryDevice {
   std::string model;     // stove model name, empty while unknown
   std::string version;   // bridge firmware version
   std::string url;       // configuration URL, e.g. "http://192.168.1.50"
-  FeatureFlags features;
+  FeatureFlags features{};
 };
 
 enum FeatureReq {
@@ -90,7 +98,9 @@ static const Entity ENTITIES[] = {
    "\"modes\":[\"off\",\"heat\"],"
    "\"mode_state_topic\":\"~/controls/on\",\"mode_state_template\":\"{{ 'heat' if value == 'true' else 'off' }}\","
    "\"mode_command_topic\":\"~/set/on\",\"mode_command_template\":\"{{ 'true' if value == 'heat' else 'false' }}\","
-   "\"temperature_state_topic\":\"~/controls/target_temperature\",\"temperature_command_topic\":\"~/set/target_temperature\","
+   "\"temperature_state_topic\":\"~/controls/target_temperature\","
+   "\"temperature_state_template\":\"{{ None if value == 'null' or value == '0' or value == '0.0' else value }}\","
+   "\"temperature_command_topic\":\"~/set/target_temperature\","
    "\"current_temperature_topic\":\"~/sensors/room_temperature\","
    "\"current_temperature_template\":\"{{ None if value == 'null' else value }}\","
    "\"preset_modes\":[\"manual\",\"auto\",\"comfort\"],"
