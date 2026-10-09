@@ -3585,9 +3585,9 @@ async function tick() {
     if (s.version_ack) document.getElementById('connState').textContent = mName + vStr + ' ' + t.connectedShort;
     syncConnDot();
 
-    // MultiAir (modèles RIKA équipés : 4=ROCO MA, 13=DOMO, 17=PARO, 22=SONO, 23=DOMO BACK, 25=SUMO MA, 29=PRIMO MA)
+    // MultiAir (RIKA models sold with it: 4=ROCO MA, 13=DOMO, 17=PARO, 22=SONO, 23=DOMO BACK, 25=SUMO MA, 26=CONNECT, 29=PRIMO MA)
     const deck = document.getElementById('multiairDeck');
-    const MULTIAIR_MODELS = [4, 13, 17, 22, 23, 25, 29];
+    const MULTIAIR_MODELS = [4, 13, 17, 22, 23, 25, 26, 29];
     const knownMultiAir = MULTIAIR_MODELS.includes(mId);
     const hasMultiAir = knownMultiAir || multiAirShown();
     // On a model that is not in the list, a link lets the owner show (or hide again) the MultiAir settings.

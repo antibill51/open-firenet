@@ -19,10 +19,11 @@ RIKA stoves use a USB CDC dongle (the "Firenet 2.0" stick) to connect to RIKA's 
 - Speaks the same USB CDC protocol as the original dongle, and detects by itself which protocol generation your stove uses (see [Stove compatibility](#stove-compatibility))
 - Connects to your home WiFi
 - Exposes a responsive local web interface at `http://open-firenet.local` with direct controls, weekly heating schedule, and live diagnostics
-- Controls **MultiAir 1 & 2** forced-air convection fans on supported stove models (DOMO, PARO, PRIMO MULTIAIR, ROCO MULTIAIR, SUMO MULTIAIR, DOMO BACK)
+- Controls **MultiAir 1 & 2** forced-air convection fans on stoves that have them (see [MultiAir compatibility](#multiair-compatibility))
 - Manages the **7-day heating schedule** (14 time slots) and setback / maintenance temperature locally
 - Reads every value the stove reports (88 records, named after the official RIKA names) and the stove settings, including frost protection, room sensor calibration, eco mode, warnings and air flaps
 - Exposes a comprehensive REST API for home automation (Home Assistant, Node-RED, etc.)
+- Rejoins your Wi-Fi by itself after a drop, and answers only its own page and programs on your network, not pages of other websites (see [Who can call the API](#who-can-call-the-api))
 - Stores all state locally — no cloud account, no internet dependency, 100% private
 
 ---
@@ -71,6 +72,7 @@ Download the standalone executable for your operating system from [**Open Firene
 - ⚡ **1-Click Flash**: Safe flashing with choice between *Update* (keeps stored Wi-Fi config) and *Full Factory Reset*.
 - 📶 **USB Wi-Fi Configuration**: Easily set your home Wi-Fi SSID and password over serial.
 - 📡 **Wireless OTA Updates**: Update the dongle remotely over Wi-Fi when already installed on your stove.
+- 🔑 **Update password** (optional, firmware 4.0): set over USB, then asked for at each wireless update.
 
 👉 Full documentation and source code: [**openfirenet/open-firenet-installer**](https://github.com/openfirenet/open-firenet-installer)
 
@@ -87,6 +89,7 @@ chmod +x flash.sh
 ./flash.sh                       # serial flash via /dev/ttyACM0
 ./flash.sh /dev/ttyACM1          # specify serial port
 ./flash.sh --ota 192.168.1.x     # OTA flash via WiFi (once already running)
+OTA_PASSWORD=secret ./flash.sh --ota 192.168.1.x   # if the bridge has an update password
 ```
 
 The script compiles then flashes bootloader + partition table + app. The NVS partition (WiFi credentials) is **preserved** across flashes.
@@ -232,6 +235,8 @@ Once connected, open **`http://open-firenet.local`** in any web browser (or use 
 - **Bridge tab** (`/#bridge`):
   - **Network**: IP, signal strength, Wi-Fi scan, Wi-Fi reconfiguration & reset
   - **MQTT**: broker settings and connection status (see [MQTT](#mqtt))
+  - **Access to the page**: extra names under which the bridge accepts to answer (see [Who can call the API](#who-can-call-the-api))
+  - **Wi-Fi power saving**: on by default; switch it off if the bridge often loses the Wi-Fi or should answer faster
   - **Restart** of the bridge
 
 <p align="center">
@@ -239,6 +244,8 @@ Once connected, open **`http://open-firenet.local`** in any web browser (or use 
 </p>
 
 - **Diagnostics tab** (`/#diagnostics`):
+  - **Bridge health**: cause of the last restart, free memory, chip temperature, Wi-Fi disconnections, time since the stove's last message
+  - **Diagnostic file**: one button downloads a single file to attach to a report (Wi-Fi name and MAC address masked)
   - **Link with the stove**: USB CDC state, packet counters, protocol revision
   - **Exchange log**: real-time console of the raw frames exchanged with the stove, with sanitized WiFi credentials (identical consecutive lines are merged), and its download button
   - **Advanced**: delay between frames sent to the stove (50 – 600 ms, default 150 ms)
@@ -261,25 +268,28 @@ What matters is the **mainboard firmware version** of the stove (menu Info on th
 |:---:|:---|:---|
 | **2.29** (e.g. DOMO, DOMO BACK, PRIMO MULTIAIR) | ✅ Supported | All values and settings |
 | **2.26 / 2.27** (e.g. INDUO) | ✅ Supported | All values and settings (no MultiAir / baking oven on these stoves) |
-| **2.28** (e.g. LIVO, INDUO II, SONO) | ⚠️ Partial | Works on a LIVO 2.28 (values, on/off, mode, power, target temperature). A SONO 2.28 does not complete the link yet |
+| **2.28** (e.g. LIVO, INDUO II, SONO) | ✅ Supported | All values and settings, MultiAir included (no baking oven on these stoves) |
+| **2.30** (e.g. INDUO) | 🚧 In progress | One report: the link comes up and pellet operation is read correctly; the states of wood operation are not named yet ([#89](https://github.com/openfirenet/open-firenet/issues/89)) |
 | **2.25 and older** | ❓ Untested | Feedback welcome |
 
 ---
 
 ## MultiAir Compatibility
 
-MultiAir forced convection fans are automatically detected and displayed in the Web UI based on the stove model ID reported by the main board:
+The MultiAir settings are displayed in the Web UI when the stove reports one of these models, which RIKA sells with MultiAir:
 
 | Model ID | Model Name | MultiAir Hardware |
 |:---:|:---|:---|
 | **`4`** | **RIKA ROCO MULTIAIR** | MultiAir 1 & 2 |
 | **`13`** | **RIKA DOMO** | MultiAir 1 & 2 |
 | **`17`** | **RIKA PARO** | MultiAir 1 & 2 |
+| **`22`** | **RIKA SONO** | MultiAir 1 & 2 |
 | **`23`** | **RIKA DOMO BACK** | MultiAir 1 & 2 |
 | **`25`** | **RIKA SUMO MULTIAIR** | MultiAir 1 & 2 |
+| **`26`** | **RIKA CONNECT** | MultiAir 1 & 2 |
 | **`29`** | **RIKA PRIMO MULTIAIR** | MultiAir 1 & 2 |
 
-*Stoves with natural convection only (e.g. FILO, COMO, REVO, CORSO) automatically hide the MultiAir control card in the Web UI to keep the interface simple and clutter-free.*
+On any other model the card is hidden, and a link "My stove has MultiAir: show its settings" brings it up: use it if your stove is equipped and not in this list, and tell us so that we add it.
 
 ---
 
@@ -298,9 +308,20 @@ Open Firenet V2 provides a clean, unified REST JSON API with natural units (temp
 | `/api/schedule` | POST | Update weekly schedule, slot timings, and setback temperature |
 | `/api/version` | GET | Firmware version, build date, and target platform |
 | `/api/restart` | POST | Software restart of the ESP32 bridge |
+| `/api/access` | GET / POST | Extra names under which the bridge accepts to answer |
+| `/api/wifi_power_saving` | GET / POST | Wi-Fi power saving, on or off |
+| `/api/mqtt` | GET / POST | MQTT settings and connection status |
 | `/api/txgap` | GET / POST | Delay between frames sent to the stove, in ms (50–600, default 150) |
 | `/api/forget` | POST | Erase Wi-Fi credentials from NVS and reboot into provisioning AP |
 | `/log` | GET | Plain-text live USB CDC debug log |
+
+### Who can call the API
+
+Since firmware 4.0 the bridge answers its own page and programs on your network (Home Assistant, the installer, scripts, `curl`), and refuses a page of another website opened in a browser.
+
+- It answers at its **IP address**, at `open-firenet.local`, and at a name without a dot. Under any other name, for example the one your router gives it, it answers `403` with a JSON that says so (`refused`, `host`, `ip`), until you add that name in the Bridge tab, section "Access to the page".
+- Commands are only accepted on `POST` and `PUT`.
+- Until the stove has sent its settings, a few seconds after the bridge starts, a command is refused with `503` (`stove_not_ready`, with a `Retry-After` header): send it again.
 
 ### `GET /api/state` example
 
@@ -425,7 +446,7 @@ Supported fields:
   - `ecoMode` (or `eco_mode`): boolean or `0`/`1`
 
 On firmware 2.26 / 2.27 the settings are sent in the order of their own record table (no baking oven record).
-On firmware 2.28, only `on`, `mode`, `power_percent` and `target_temperature` are applied for now.
+On firmware 2.28 the settings are sent as on 2.26 / 2.27.
 
 ---
 
@@ -547,7 +568,8 @@ For Home Assistant, use the official custom integration repository:
 Features:
 - Single-step setup via UI Config Flow (enter `http://open-firenet.local` or IP)
 - Native **Climate** entity with target temperature, presets (`manual`, `auto`, `comfort`) and heating power
-- **MultiAir 1 & 2** fans, **weekly schedule**, frost protection, room sensor calibration and bake temperature entities
+- **MultiAir 1 & 2** fans, frost protection, room sensor calibration and bake temperature entities
+- **Weekly schedule**: drawn as a Home Assistant schedule and copied to the stove with one button
 - Sensors and binary sensors for temperatures, state, pellet consumption, errors and warnings
 - Local polling of the bridge API, no cloud
 
