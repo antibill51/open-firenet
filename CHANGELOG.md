@@ -1,5 +1,10 @@
 # Changelog
 
+## Non publié
+
+### Fixes
+- Web page: the MultiAir settings are now shown for a CONNECT too, a model RIKA sells with one or two MultiAir outlets.
+
 ## v4.0.0 (2026-10-08)
 
 ### Features
