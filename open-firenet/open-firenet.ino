@@ -207,6 +207,122 @@ static void mainStateNames(long mainSt, const char*& stName, const char*& stLabe
   }
 }
 
+// Determines the official SVG status image URL and localized text key based on the Home Assistant custom component rules
+static void determineStoveStatus(
+    long mainSt, long sState, long errMask, long errSub, long warnCode,
+    long fTemp, bool ecoMode,
+    const char*& statusPicture, const char*& statusText) {
+
+  // Priority 1: Errors & warnings
+  if (warnCode == 2) {
+    statusPicture = "https://www.rika-firenet.com/images/status/Any_Warning.svg";
+    statusText = "pellet_lid_open";
+    return;
+  }
+  if (errMask == 1 && errSub == 1) {
+    statusPicture = "https://raw.githubusercontent.com/antibill51/rika-firenet-custom-component/main/images/status/Visu_Error.svg";
+    statusText = "Error";
+    return;
+  }
+  if (errMask == 1 && errSub == 2) {
+    statusPicture = "https://raw.githubusercontent.com/antibill51/rika-firenet-custom-component/main/images/status/Visu_Empty.svg";
+    statusText = "empty_tank";
+    return;
+  }
+  if (errMask == 8 && errSub == 16) {
+    statusPicture = "https://raw.githubusercontent.com/antibill51/rika-firenet-custom-component/main/images/status/Visu_Error.svg";
+    statusText = "not_ignited";
+    return;
+  }
+  if (errMask == 32768) {
+    statusPicture = "https://raw.githubusercontent.com/antibill51/rika-firenet-custom-component/main/images/status/Visu_smoke_fan.svg";
+    statusText = "smoke_fan";
+    return;
+  }
+  if (errMask != 0) {
+    statusPicture = "https://raw.githubusercontent.com/antibill51/rika-firenet-custom-component/main/images/status/Visu_Error.svg";
+    statusText = "error";
+    return;
+  }
+
+  // Priority 2: Main operational states
+  if (mainSt == 1 && sState == 0) {
+    statusPicture = "https://www.rika-firenet.com/images/status/Visu_Off.svg";
+    statusText = "stove_off";
+    return;
+  }
+  if (mainSt == 1 && (sState == 1 || sState == 2 || sState == 3)) {
+    statusPicture = "https://www.rika-firenet.com/images/status/Visu_Standby.svg";
+    statusText = (sState == 2) ? "external_request" : "standby";
+    return;
+  }
+  if (mainSt == 1) {
+    statusPicture = "https://www.rika-firenet.com/images/status/Visu_Off.svg";
+    statusText = "sub_state_unknown";
+    return;
+  }
+  if (mainSt == 2) {
+    statusPicture = "https://www.rika-firenet.com/images/status/Visu_Ignition.svg";
+    statusText = "ignition_on";
+    return;
+  }
+  if (mainSt == 3) {
+    statusPicture = "https://www.rika-firenet.com/images/status/Visu_Ignition.svg";
+    statusText = "starting_up";
+    return;
+  }
+  if (mainSt == 4) {
+    statusPicture = "https://www.rika-firenet.com/images/status/Visu_Control.svg";
+    statusText = "running";
+    return;
+  }
+  if (mainSt == 5 && (sState == 3 || sState == 4)) {
+    statusPicture = "https://www.rika-firenet.com/images/status/Visu_Clean.svg";
+    statusText = "big_clean";
+    return;
+  }
+  if (mainSt == 5) {
+    statusPicture = "https://www.rika-firenet.com/images/status/Visu_Clean.svg";
+    statusText = "clean";
+    return;
+  }
+  if (mainSt == 6) {
+    statusPicture = "https://www.rika-firenet.com/images/status/Visu_BurnOff.svg";
+    statusText = "burn_off";
+    return;
+  }
+
+  // Priority 3: Special modes (split log)
+  if (mainSt == 11 || mainSt == 13 || mainSt == 14 || mainSt == 16 || mainSt == 17 || mainSt == 50) {
+    statusPicture = "https://www.rika-firenet.com/images/status/Visu_SpliLog.svg";
+    statusText = "split_log_check";
+    return;
+  }
+  if (mainSt == 21 && sState == 12 && fTemp >= 300 && fTemp <= 350) {
+    statusPicture = "https://www.rika-firenet.com/images/status/Visu_SpliLog.svg";
+    statusText = "split_log_refuel";
+    return;
+  }
+  if (mainSt == 21 && sState == 12 && fTemp < 300) {
+    statusPicture = "https://www.rika-firenet.com/images/status/Visu_SpliLog.svg";
+    statusText = "split_log_stop_refuel";
+    return;
+  }
+  if (mainSt == 20 && ecoMode) {
+    statusPicture = "https://www.rika-firenet.com/images/status/Visu_SpliLog.svg";
+    statusText = "split_log_ecomode";
+    return;
+  }
+  if (mainSt == 20 || mainSt == 21) {
+    statusPicture = "https://www.rika-firenet.com/images/status/Visu_SpliLog.svg";
+    statusText = "split_log_mode";
+    return;
+  }
+
+  statusPicture = "https://www.rika-firenet.com/images/status/Visu_Off.svg";
+  statusText = "unknown";
+}
+
 // The "stove", "sensors" and "controls" objects, shared by /api/state and by MQTT (same names, same units).
 static String jsonStoveSections() {
   const auto& m = g_link->model();
@@ -229,6 +345,13 @@ static String jsonStoveSections() {
   long appVer   = sensorValue(m, "appVerBoard", -1);
   long buildVer = sensorValue(m, "firmwareBuild", -1);
   long warnCode = sensorValue(m, "statusWarning", 0);
+
+  // Security contacts and digital inputs
+  long doorClosed   = sensorValue(m, "door", 1);
+  long hopperClosed = sensorValue(m, "hopperLidClosed", 1);
+  long gridOk       = sensorValue(m, "gridContact", 1);
+  long extReq       = sensorValue(m, "externalRequest", 0);
+  long logHours     = sensorValue(m, "logRuntime", -1);
 
   // Air flap values are per mille: the stove screen labels them "Luftklappen [‰]" and shows the raw value (50 for
   // raw 50 = 5.0 %, photo of an INDUO 2.27, issue #4), so they are divided by 10 to publish a percentage. A missing
@@ -281,6 +404,11 @@ static String jsonStoveSections() {
   // Eco mode (control ecoMode, DOMO record 6) and whether the stove allows it (sensor ecoModePossible).
   long ecoMode     = controlValue(m, "ecoMode", 0);
   long ecoPossible = sensorValue(m, "ecoModePossible", 0);
+  long roomPwrReq  = controlValue(m, "roomSensorPower", 2);
+
+  const char* statusPicture = nullptr;
+  const char* statusText = nullptr;
+  determineStoveStatus(mainSt, sState, errMask, errSub, warnCode, fTemp, ecoMode != 0, statusPicture, statusText);
 
   float rTempF = rTemp / 10.0f;
   float rTargetF = curRoom / 10.0f;
@@ -292,12 +420,17 @@ static String jsonStoveSections() {
   char roomTempS[16] = "null";
   if (roomSensor) snprintf(roomTempS, sizeof roomTempS, "%.1f", rTempF);
 
-  char buf[1500];
+  char logHoursS[16] = "null";
+  if (logHours >= 0) snprintf(logHoursS, sizeof logHoursS, "%ld", logHours / 60);
+
+  char buf[2000];
   snprintf(buf, sizeof(buf),
     "\"stove\":{"
       "\"state\":\"%s\","
       "\"state_code\":%ld,"
       "\"state_label\":\"%s\","
+      "\"status_text\":\"%s\","
+      "\"status_picture\":\"%s\","
       "\"sub_state\":%ld,"
       "\"is_burning\":%s,"
       "\"has_error\":%s,"
@@ -316,11 +449,17 @@ static String jsonStoveSections() {
       "\"board_temperature\":%.1f,"
       "\"pellets_total_kg\":%ld,"
       "\"pellet_hours\":%ld,"
+      "\"log_runtime_hours\":%s,"
       "\"service_countdown_kg\":%ld,"
       "\"fan_speed_rpm\":%ld,"
       "\"auger_speed_rpm\":%ld,"
       "\"air_flaps_percent\":%s,"
-      "\"air_flaps_target_percent\":%s"
+      "\"air_flaps_target_percent\":%s,"
+      "\"door_open\":%s,"
+      "\"hopper_open\":%s,"
+      "\"grid_problem\":%s,"
+      "\"external_request\":%s,"
+      "\"wifi_rssi\":%d"
     "},"
     "\"controls\":{"
       "\"on\":%s,"
@@ -328,6 +467,7 @@ static String jsonStoveSections() {
       "\"mode_code\":%ld,"
       "\"target_temperature\":%.1f,"
       "\"power_percent\":%ld,"
+      "\"room_power_request\":%ld,"
       "\"heating_times_active\":%s,"
       "\"setback_temperature\":%.1f,"
       "\"convection_fan1_active\":%s,"
@@ -343,15 +483,20 @@ static String jsonStoveSections() {
       "\"eco_mode\":%s,"
       "\"eco_mode_possible\":%s"
     "}",
-    stName, mainSt, stLabel, sState,
+    stName, mainSt, stLabel, statusText, statusPicture, sState,
     isBurning ? "true" : "false",
     errMask != 0 ? "true" : "false",
     errMask, errSub, warnCode,
     modelS, modelNameS, mbVerS, buildS,
-    roomTempS, roomSensor ? "true" : "false", fTempF, bTempF, pTotal, pHours, sCount, idFan, auger,
+    roomTempS, roomSensor ? "true" : "false", fTempF, bTempF, pTotal, pHours, logHoursS, sCount, idFan, auger,
     airFlapsS, airFlapsTgtS,
+    (doorClosed == 0) ? "true" : "false",
+    (hopperClosed == 0) ? "true" : "false",
+    (gridOk == 0) ? "true" : "false",
+    (extReq != 0) ? "true" : "false",
+    (WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : 0,
     (curOn == 1) ? "true" : "false",
-    modeName, curMode, rTargetF, curStage,
+    modeName, curMode, rTargetF, curStage, roomPwrReq,
     (htActive == 1) ? "true" : "false", sbTempF,
     (fan1On == 1) ? "true" : "false", fan1Level, fan1Area,
     (fan2On == 1) ? "true" : "false", fan2Level, fan2Area,
@@ -1282,6 +1427,13 @@ static void mqttDiscoveryStep() {
   dev.model = g_mqttDiscModel.c_str();
   dev.version = OPENFIRENET_VERSION;
   dev.url = std::string("http://") + WiFi.localIP().toString().c_str();
+  if (g_link) {
+    const auto& m = g_link->model();
+    dev.features.has_air_flaps = (m.sensors.find("airFlaps") != m.sensors.end());
+    dev.features.has_log_runtime = (m.sensors.find("logRuntime") != m.sensors.end());
+    dev.features.has_multiair1 = (controlValue(m, "convectionFan1Active", -1) >= 0 || m.controls.find("convectionFan1Active") != m.controls.end() || m.controls_pos.size() > 23);
+    dev.features.has_multiair2 = (controlValue(m, "convectionFan2Active", -1) >= 0 || m.controls.find("convectionFan2Active") != m.controls.end() || m.controls_pos.size() > 26);
+  }
   std::string topic, payload;
   for (int n = 0; n < 4; n++) {
     if (!firenet::mqtt::discoveryEntity(g_mqttDiscNext, dev, g_mqttDiscRemove, topic, payload)) {

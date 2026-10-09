@@ -476,6 +476,8 @@ components:
           enum: ["off", standby, ignition, flame_start, heating, cleaning, burn_off, splitlog, unknown]
         state_code: { type: integer }
         state_label: { type: string }
+        status_text: { type: string, description: "Localized status key matching HA integration" }
+        status_picture: { type: string, description: "Official SVG status image URL" }
         sub_state: { type: integer }
         is_burning: { type: boolean }
         has_error: { type: boolean }
@@ -495,11 +497,17 @@ components:
         board_temperature: { type: number, description: °C }
         pellets_total_kg: { type: integer }
         pellet_hours: { type: integer, description: Running hours }
+        log_runtime_hours: { type: integer, nullable: true, description: Running hours on wood/logs }
         service_countdown_kg: { type: integer, description: Pellets left before the next service }
         fan_speed_rpm: { type: integer }
         auger_speed_rpm: { type: integer }
         air_flaps_percent: { type: number, nullable: true }
         air_flaps_target_percent: { type: number, nullable: true }
+        door_open: { type: boolean, description: "True if stove door is open" }
+        hopper_open: { type: boolean, description: "True if pellet lid is open" }
+        grid_problem: { type: boolean, description: "True if grid contact has an issue" }
+        external_request: { type: boolean, description: "External thermostat input contact active" }
+        wifi_rssi: { type: integer, description: "Wi-Fi signal strength in dBm" }
     ControlsState:
       type: object
       description: The current settings
@@ -509,6 +517,7 @@ components:
         mode_code: { type: integer, description: "0 = manual, 1 = auto, 2 = comfort" }
         target_temperature: { type: number, description: °C }
         power_percent: { type: integer }
+        room_power_request: { type: integer, minimum: 1, maximum: 4, description: "Room power request level 1 to 4" }
         heating_times_active: { type: boolean, description: Weekly schedule on / off }
         setback_temperature: { type: number, description: °C outside the scheduled slots }
         convection_fan1_active: { type: boolean }
@@ -555,6 +564,7 @@ components:
         room_temperature_offset: { type: number, minimum: -4, maximum: 4, description: °C }
         bake_target_temperature: { type: integer, minimum: 130, maximum: 340, description: °C (DOMO BACK only) }
         eco_mode: { type: boolean }
+        room_power_request: { type: integer, minimum: 1, maximum: 4, description: "Room power request level 1 to 4" }
         convection_fan1_active: { type: boolean }
         convection_fan1_level: { type: integer, minimum: 0, maximum: 5, description: "0 = automatic" }
         convection_fan1_area: { type: integer, minimum: -30, maximum: 30 }

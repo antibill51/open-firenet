@@ -49,6 +49,7 @@ static const ControlParam CONTROL_PARAMS[] = {
   {"ecoMode",               ParamKind::Bool,       "ecoMode eco_mode"},
   {"heatingTimesActive",    ParamKind::Bool,       "heatingTimesActive heating_times_active scheduleActive"},
   {"setBackTemp",           ParamKind::Temp10,     "setBackTemp setback_temperature setbackTemp tempEco"},
+  {"roomSensorPower",       ParamKind::Int,        "roomSensorPower room_power_request RoomPowerRequest roomPowerRequest"},
 };
 
 inline const ControlParam* findControlParam(const std::string& name) {

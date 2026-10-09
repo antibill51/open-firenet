@@ -100,9 +100,17 @@ jobs:
 
       - name: Compile ESP32-S3 Sketch
         run: |
-          mkdir -p .build ~/.arduino15/build-cache
+          mkdir -p .build dist ~/.arduino15/build-cache
           arduino-cli compile \
             --fqbn esp32:esp32:esp32s3:USBMode=default,CDCOnBoot=default,FlashSize=4M,PartitionScheme=min_spiffs \
             --build-cache-path ~/.arduino15/build-cache \
             --output-dir .build \
             open-firenet/open-firenet.ino
+          ls -la .build/
+          cp -v .build/* dist/
+
+      - name: Upload firmware binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: open-firenet-esp32s3-firmware
+          path: dist/*

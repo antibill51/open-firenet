@@ -78,6 +78,17 @@ int main() {
     mqtt::DiscoveryDevice unknown{"openfirenet_45eac8", "openfirenet", "", "", ""};
     mqtt::discoveryEntity(0, unknown, false, topic, payload);
     CH("discovery: model unknown yet", payload.find("\"model\":\"Pellet stove\"}}") != std::string::npos);
+
+    // Feature masking tests
+    mqtt::DiscoveryDevice maskedDev{"openfirenet_45eac8", "home/stove", "DOMO", "3.4.0", "http://192.168.1.50", {false, false, false, false}};
+    bool maskedFound = false;
+    for (size_t i = 0; i < n; i++) {
+      mqtt::discoveryEntity(i, maskedDev, false, topic, payload);
+      if (topic.find("multiair") != std::string::npos || topic.find("air_flaps") != std::string::npos || topic.find("hours_logs") != std::string::npos) {
+        if (payload.empty()) maskedFound = true;
+      }
+    }
+    CH("discovery: unsupported features produce empty payload for masking", maskedFound);
   }
 
   std::cout << "mqtt: " << ok << " ok, " << ko << " failed\n";
