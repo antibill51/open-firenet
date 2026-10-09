@@ -1436,8 +1436,10 @@ static void mqttDiscoveryStep() {
     const auto& m = g_link->model();
     // Only infer features once the stove has sent its actual sensor records.
     if (!m.sensors_pos.empty()) {
-      dev.features.has_air_flaps = (sensorValue(m, "ecoModePossible", 0) == 1) || (m.sensors.find("airFlaps") != m.sensors.end());
-      dev.features.has_log_runtime = (m.sensors.find("logRuntime") != m.sensors.end());
+      // ecoMode is only available when sensor ecoModePossible == 1 and not on 2.28 (V28 profile)
+      dev.features.has_eco_mode = (sensorValue(m, "ecoModePossible", 0) == 1) && (m.version_profile != 1);
+      dev.features.has_air_flaps = (sensorValue(m, "airFlaps", 0) > 0) || (sensorValue(m, "airFlapsTarget", 0) > 0);
+      dev.features.has_log_runtime = (sensorValue(m, "logRuntime", -1) > 0);
       dev.features.has_multiair1 = (controlValue(m, "convectionFan1Active", -1) >= 0 || m.controls.find("convectionFan1Active") != m.controls.end() || m.controls_pos.size() > 23);
       dev.features.has_multiair2 = (controlValue(m, "convectionFan2Active", -1) >= 0 || m.controls.find("convectionFan2Active") != m.controls.end() || m.controls_pos.size() > 26);
     }
@@ -1465,8 +1467,9 @@ static void mqttPublish() {
     String model = (linked && modelId >= 0) ? String(getStoveModelName(modelId)) : String();
     firenet::mqtt::FeatureFlags curFeatures;
     if (linked) {
-      curFeatures.has_air_flaps = (sensorValue(m, "ecoModePossible", 0) == 1) || (m.sensors.find("airFlaps") != m.sensors.end());
-      curFeatures.has_log_runtime = (m.sensors.find("logRuntime") != m.sensors.end());
+      curFeatures.has_eco_mode = (sensorValue(m, "ecoModePossible", 0) == 1) && (m.version_profile != 1);
+      curFeatures.has_air_flaps = (sensorValue(m, "airFlaps", 0) > 0) || (sensorValue(m, "airFlapsTarget", 0) > 0);
+      curFeatures.has_log_runtime = (sensorValue(m, "logRuntime", -1) > 0);
       curFeatures.has_multiair1 = (controlValue(m, "convectionFan1Active", -1) >= 0 || m.controls.find("convectionFan1Active") != m.controls.end() || m.controls_pos.size() > 23);
       curFeatures.has_multiair2 = (controlValue(m, "convectionFan2Active", -1) >= 0 || m.controls.find("convectionFan2Active") != m.controls.end() || m.controls_pos.size() > 26);
     }

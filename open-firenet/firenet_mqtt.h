@@ -50,13 +50,15 @@ inline bool commandTopic(const std::string& base, const std::string& topic, std:
 // One retained configuration message per entity, under homeassistant/<component>/<device id>/<key>/config. The
 // entities read the per-value topics (<base>/sensors/..., <base>/controls/...) and command <base>/set/<name>.
 struct FeatureFlags {
+  bool has_eco_mode = false;
   bool has_air_flaps = false;
   bool has_log_runtime = false;
   bool has_multiair1 = false;
   bool has_multiair2 = false;
 
   bool operator==(const FeatureFlags& o) const {
-    return has_air_flaps == o.has_air_flaps &&
+    return has_eco_mode == o.has_eco_mode &&
+           has_air_flaps == o.has_air_flaps &&
            has_log_runtime == o.has_log_runtime &&
            has_multiair1 == o.has_multiair1 &&
            has_multiair2 == o.has_multiair2;
@@ -78,6 +80,7 @@ struct DiscoveryDevice {
 
 enum FeatureReq {
   FEAT_NONE,
+  FEAT_ECO_MODE,
   FEAT_AIR_FLAPS,
   FEAT_LOG_RUNTIME,
   FEAT_MULTIAIR1,
@@ -164,7 +167,7 @@ static const Entity ENTITIES[] = {
    FEAT_NONE},
   {"switch", "eco_mode", "Eco Mode",
    "\"state_topic\":\"~/controls/eco_mode\",\"command_topic\":\"~/set/eco_mode\"," OF_BOOL "\"icon\":\"mdi:leaf\",",
-   FEAT_AIR_FLAPS},
+   FEAT_ECO_MODE},
   {"switch", "convection_fan1", "Convection Fan 1",
    "\"state_topic\":\"~/controls/convection_fan1_active\",\"command_topic\":\"~/set/convection_fan1_active\"," OF_BOOL
    "\"icon\":\"mdi:fan\",",
@@ -291,6 +294,7 @@ inline bool discoveryEntity(size_t i, const DiscoveryDevice& dev, bool remove, s
 
   bool supported = true;
   switch (e.feat) {
+    case FEAT_ECO_MODE:     supported = dev.features.has_eco_mode; break;
     case FEAT_AIR_FLAPS:    supported = dev.features.has_air_flaps; break;
     case FEAT_LOG_RUNTIME:  supported = dev.features.has_log_runtime; break;
     case FEAT_MULTIAIR1:    supported = dev.features.has_multiair1; break;
