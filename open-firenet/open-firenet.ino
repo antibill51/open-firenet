@@ -1187,7 +1187,7 @@ static std::deque<MqttCommand> g_mqttInbox;
 static std::deque<std::pair<std::string, std::string>> g_mqttOutbox;   // topic, payload (all retained, QoS 0)
 // The queue is limited in bytes: a full refresh (about 50 values and 25 discovery messages, 30 kB in all) used to
 // be queued at once, which left a DOMO with less than 2 kB of free memory right after a TLS connection.
-static const size_t MQTT_OUTBOX_MAX_BYTES = 3072;
+static const size_t MQTT_OUTBOX_MAX_BYTES = 6144;
 static size_t g_mqttOutboxBytes = 0;
 // Queues a message (g_mqttMx held by the caller). An empty queue takes any message, however long.
 static bool mqttOutboxPush(std::string topic, std::string payload) {
@@ -1201,6 +1201,7 @@ static std::mutex g_mqttClientMx;             // held while publishing, and whil
 static TaskHandle_t g_mqttPublisher = nullptr;
 static std::map<std::string, std::string> g_mqttSent;   // last value published per topic
 static String g_mqttLastState;
+static String g_mqttLastStoveState;
 static uint32_t g_mqttLastStateMs = 0;
 // Home Assistant discovery (optional): the configuration messages are sent a few at a time after each connection,
 // and again when the stove model becomes known. g_mqttDiscRemove sends the empty messages that delete the entities,
@@ -1483,13 +1484,16 @@ static void mqttPublish() {
   char dev[160];
   snprintf(dev, sizeof dev, "{\"device\":{\"version\":\"" OPENFIRENET_VERSION "\",\"connected\":%s,\"ip\":\"%s\"}",
            linked ? "true" : "false", WiFi.localIP().toString().c_str());
+  String stoveSec = linked ? jsonStoveSections() : String();
   // Before the stove is linked its values are not known: only the "device" object is published.
-  String state = String(dev) + "," + jsonHealth(true) + (linked ? "," + jsonStoveSections() : String()) + "}";
+  String state = String(dev) + "," + jsonHealth(true) + (linked ? ("," + stoveSec) : String()) + "}";
   uint32_t now = millis();
-  bool changed = state != g_mqttLastState;
-  if ((changed && (g_mqttLastState.isEmpty() || now - g_mqttLastStateMs >= 5000)) || now - g_mqttLastStateMs >= 60000) {
+  bool stoveChanged = (stoveSec != g_mqttLastStoveState);
+  if ((stoveChanged && (g_mqttLastState.isEmpty() || now - g_mqttLastStateMs >= 3000)) || now - g_mqttLastStateMs >= 60000) {
     if (!mqttQueue("state", state.c_str(), state.length())) return;
-    g_mqttLastState = state; g_mqttLastStateMs = now;
+    g_mqttLastState = state;
+    g_mqttLastStoveState = stoveSec;
+    g_mqttLastStateMs = now;
   }
   std::vector<std::pair<std::string, std::string>> values;
   firenet::mqtt::flattenSections(state.c_str(), values);
@@ -1528,12 +1532,12 @@ static void mqttLoop() {
     mqttApply(c);
   }
   if (g_mqttFresh) {
-    g_mqttFresh = false; g_mqttSent.clear(); g_mqttLastState = ""; DBG.println("[mqtt] full refresh");
+    g_mqttFresh = false; g_mqttSent.clear(); g_mqttLastState = ""; g_mqttLastStoveState = ""; DBG.println("[mqtt] full refresh");
     if (g_mqttCfg.discovery) { g_mqttDiscNext = 0; g_mqttDiscRemove = false; }
     else if (!g_mqttDiscRemove) g_mqttDiscNext = SIZE_MAX;
   }
   static uint32_t lastPublish = 0;
-  if (g_mqttConnected && millis() - lastPublish >= 1000) { lastPublish = millis(); mqttPublish(); }
+  if (g_mqttConnected && millis() - lastPublish >= 3000) { lastPublish = millis(); mqttPublish(); }
 }
 
 static String jsonEscape(const String& in) {
